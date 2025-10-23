@@ -1,7 +1,7 @@
-import { Container, Typography, FormControl, FormLabel, FormHelperText, TextField, Button } from "@mui/material";
-import { useContext, useState } from "react";
+import { Container, Typography, FormControl, FormLabel, FormHelperText, TextField, Button, Snackbar } from "@mui/material";
+import { useContext, useEffect, useState } from "react";
 import * as EmailValidator from 'email-validator'
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { AppContext } from "../ContextProvider";
 
 export default function ManagerLogin(){
@@ -9,8 +9,30 @@ export default function ManagerLogin(){
     const [email, setEmail] = useState("")
     const [pass, setPass] = useState("")
     const {currentManager, setCurrentManager} = useContext(AppContext)
+    const [params] = useSearchParams()
+    let msg = params.get('msg')    
+    const [displaySnakBar, setSnackBar] = useState(false)
+    const [snackBarText, setSnackBarText] = useState("")
+
+    function handleSnackBarClose(){
+        setSnackBar(false)
+    }
 
     const navigate = useNavigate()
+
+    useEffect(()=>{
+        if(msg !== null){
+            setSnackBar(true)
+            setSnackBarText(msg)
+            setTimeout(()=>{
+                params.set("msg", null)
+            })
+        }
+        else{
+            setSnackBar(false)
+            setSnackBarText("")
+        }
+    }, [])
 
     async function handleFormSubmit(e){
         e.preventDefault()
@@ -63,6 +85,20 @@ export default function ManagerLogin(){
                     </FormControl>
                 </form>
             </Container>
+            {
+                displaySnakBar ? 
+                (
+                    <Snackbar
+                        anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+                        open={displaySnakBar}
+                        message={snackBarText}
+                        autoHideDuration={2000}
+                        onClose={handleSnackBarClose}
+                    />
+                ) : (
+                    <></>
+                )
+            }
         </>
     )
 } 

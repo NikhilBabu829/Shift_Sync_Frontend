@@ -1,5 +1,5 @@
 import { Container, FormControl, TextField, Typography, Button, Snackbar } from "@mui/material"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
 
 export default function ManagerInvite(){
@@ -10,16 +10,27 @@ export default function ManagerInvite(){
     const navigate = useNavigate()
 
     const managerToken = localStorage.getItem("aes52")
+
+    useEffect(()=>{
+        if(managerToken == null){
+            const msg = new URLSearchParams({
+                msg : "You need to login"
+            })
+            navigate(`/manager-login?${msg}`)
+        }
+    },[managerToken])
+
     function handleSnackBarClose(){
         setDisplaySnackBar(false)
     }
 
     async function handleFormSubmit(e){
         e.preventDefault()
-        const authorizationString = managerToken
+        const authorizationString = `Bearer ${managerToken}`
         const to = toEmail
+        console.log(to)
         try{
-            const request = await fetch("http://localhost:3000/api/staff-add", {method : "POST", headers : {'Content-Type' : 'application/json', 'authorization' : authorizationString}, body : JSON.stringify(to)})
+            const request = await fetch("http://localhost:3000/api/staff-add", {method : "POST", headers : {'Content-Type' : 'application/json', 'authorization' : authorizationString}, body : JSON.stringify({to})})
             if(request.ok){
                 const response = await request.json()
                 console.log(response)
