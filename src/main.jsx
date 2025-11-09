@@ -47,7 +47,7 @@ const router = createBrowserRouter([
   {
     path : "/invite-staff",
     element : <ManagerInvite />
-  }
+  },
 ])
 
 ReactDOM.createRoot(document.getElementById('root')).render(

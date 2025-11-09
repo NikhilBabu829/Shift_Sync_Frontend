@@ -5,8 +5,6 @@ import AppBar from '@mui/material/AppBar'
 import Container from '@mui/material/Container'
 import { Avatar, IconButton, Menu, MenuItem, Tooltip } from '@mui/material'
 
-const settings = ["Logout"]
-
 export default function NavBar({user}){
 
     const {userIsLoggedIn, setUserLoggedIn, setCurrentUser, currentUser} = useContext(AppContext)

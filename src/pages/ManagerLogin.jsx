@@ -3,6 +3,7 @@ import { useContext, useEffect, useState } from "react";
 import * as EmailValidator from 'email-validator'
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { AppContext } from "../ContextProvider";
+import Box from '@mui/material/Box';
 
 export default function ManagerLogin(){
 
@@ -61,6 +62,7 @@ export default function ManagerLogin(){
         <>
             <Container maxWidth="md" sx={{textAlign : "center", paddingTop : {xs : "4%", md : "3%", lg : "2%"}, paddingBottom : {xs : "4%", md : "3%", lg : "2%"}}}> 
                 <Typography variant="h1" color="warning">Manger Login</Typography>
+                <Box maxWidth="xs" sx={{minHeight : "100vh", minWidth : "100%" , display : "flex", alignItems : "center", justifyContent : "center", position : "absolute", top:"0", left : "0"}}>
                 <form onSubmit={handleFormSubmit}>
                     <FormControl>
                         <TextField
@@ -84,6 +86,7 @@ export default function ManagerLogin(){
                         </Button>
                     </FormControl>
                 </form>
+                </Box>
             </Container>
             {
                 displaySnakBar ? 

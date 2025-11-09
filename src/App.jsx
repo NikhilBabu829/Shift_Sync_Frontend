@@ -11,17 +11,20 @@ function App() {
 
   const [homePageText, setHomePageText] = useState(0)
   const navigate = useNavigate()
+  const [loading, setLoading] = useState(true)
 
   useEffect(()=>{
-
+    console.log(performance.now())
     const interval = setInterval(()=>{
       const randomIndex = Math.floor(Math.random() * (homepageWords.length - 1))
       setHomePageText(randomIndex)
     }, 1700)
-
+    setLoading(false)
+    console.log(performance.now())
     return ()=> clearInterval(interval)
-
   }, [])
+
+  
 
   return (
     <>
