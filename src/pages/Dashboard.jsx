@@ -9,14 +9,13 @@ import AppBar from '@mui/material/AppBar'
 import Container from '@mui/material/Container'
 import { Avatar, IconButton, Menu, MenuItem, Tooltip } from '@mui/material'
 
-import ClockIn from '../components/ClockIn'
+// import ClockIn from '../components/ClockIn'
 
-const settings = ["Logout", "Clock-In"]
+const settings = ["Logout", "Clock-In", "Clock-Out"]
 
 function Dashboard(){
 
     const params = useSearchParams()
-    const { updateUserLoggedInStatus } = useContext(AppContext)
     const [loading, setLoading] = useState(true)
     const [currentUser, setCurrentUser] = useState(null)
     const navigate = useNavigate()
@@ -39,21 +38,15 @@ function Dashboard(){
         setDisplaySnackBar(false)
     }
 
-    const handleMenuClick = async (e) => {
-        if(e.target.textContent === "Clock-In"){
-            const short = await ClockIn()
-            console.log(short)
-            if(short.result){
-                setDisplaySnackBar(true)
-                setSnackBarText(short.message)
-            }else{
-                setDisplaySnackBar(true)
-                setSnackBarText(short.message)
-            }
-        }else{
-            console.log("This is not clock in something else")
+    const handleMenuClick = (e) => {
+        if(e.target.innerText === "Clock-In"){
+            navigate("/staff-clock-in")
+        }else if(e.target.innerText === "Clock-Out"){
+            navigate("/staff-clock-out")
         }
-        console.log("This is well connected", e.target.textContent)
+        else{
+            console.log("Logout")
+        }
     }
 
     async function checkUser(){

@@ -12,6 +12,8 @@ import StaffSwap from './pages/StaffSwap'
 import ManagerLogin from './pages/ManagerLogin'
 import ManagerDashboard from './pages/ManagerDashboard'
 import ManagerInvite from './pages/ManagerInvite'
+import ClockIn from './components/ClockIn'
+import ClockOut from './components/ClockOut'
 
 const theme =  createTheme({
   palette : {
@@ -48,6 +50,14 @@ const router = createBrowserRouter([
     path : "/invite-staff",
     element : <ManagerInvite />
   },
+  {
+    path : "/staff-clock-in",
+    element : <ClockIn />
+  },
+  {
+    path : "/staff-clock-out",
+    element : <ClockOut />
+  }
 ])
 
 ReactDOM.createRoot(document.getElementById('root')).render(

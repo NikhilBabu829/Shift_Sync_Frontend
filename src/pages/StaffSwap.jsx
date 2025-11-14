@@ -45,7 +45,7 @@ export default function StaffSwap(){
             swapDate : swapingTime.toDateString(),
             swap_belongs_to : swapUserId,
             swap_shift_start_time : swapingTime.toLocaleString(),
-            swap_shift_end_time : swapEndTime.toLocaleString()
+            swap_shift_end_time : swappingEndTime.toLocaleString()
         }
         console.log(dataFormat)
         const authorizationString = `Bearer ${userAuth}`
