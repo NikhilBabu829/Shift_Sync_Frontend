@@ -10,19 +10,19 @@ export default function ManagerLogin(){
     const [email, setEmail] = useState("")
     const [pass, setPass] = useState("")
     const {currentManager, setCurrentManager} = useContext(AppContext)
-    const [params] = useSearchParams()
-    let msg = params.get('msg')    
     const [displaySnakBar, setSnackBar] = useState(false)
     const [snackBarText, setSnackBarText] = useState("")
+    const navigate = useNavigate()
+    const [params] = useSearchParams()
 
     function handleSnackBarClose(){
         setSnackBar(false)
     }
 
-    const navigate = useNavigate()
-
     useEffect(()=>{
+        let msg = params.get('msg')
         if(msg !== null){
+            console.log("came to this one")
             setSnackBar(true)
             setSnackBarText(msg)
             setTimeout(()=>{
@@ -37,12 +37,13 @@ export default function ManagerLogin(){
 
     async function handleFormSubmit(e){
         e.preventDefault()
-        let emailId;
-        if(EmailValidator.validate(email)){
-            emailId = email
-        }else{
-            navigate("/manager-login")
+        if(!EmailValidator.validate(email)){
+            const msg = new URLSearchParams({
+                msg : "Please Check the email you used, and try again!"
+            })
+            window.location.replace(`http://localhost:5173/manager-login?${msg}`)
         }
+        const emailId = email
         const password = pass
         try{
             const request = await fetch("http://localhost:3000/api/manager-login", {method : "POST", headers : {'Content-Type' : 'application/json'}, body : JSON.stringify({email : emailId, password : password})})
@@ -55,7 +56,6 @@ export default function ManagerLogin(){
         }catch{
             navigate("/manager-login")
         }
-
     }
 
     return (
@@ -71,7 +71,6 @@ export default function ManagerLogin(){
                           name="email"
                           value={email}
                           placeholder="example@gmail.com"
-                          type="email"
                           onChange={(e)=>{setEmail(e.target.value)}}
                         />
                         <TextField
