@@ -22,7 +22,6 @@ export default function ManagerLogin(){
     useEffect(()=>{
         let msg = params.get('msg')
         if(msg !== null){
-            console.log("came to this one")
             setSnackBar(true)
             setSnackBarText(msg)
             setTimeout(()=>{
@@ -38,23 +37,28 @@ export default function ManagerLogin(){
     async function handleFormSubmit(e){
         e.preventDefault()
         if(!EmailValidator.validate(email)){
-            const msg = new URLSearchParams({
-                msg : "Please Check the email you used, and try again!"
-            })
-            window.location.replace(`http://localhost:5173/manager-login?${msg}`)
+            setSnackBar(true)
+            setSnackBarText("Please check in the email and password, and try again!")
+            return;
         }
         const emailId = email
         const password = pass
         try{
             const request = await fetch("http://localhost:3000/api/manager-login", {method : "POST", headers : {'Content-Type' : 'application/json'}, body : JSON.stringify({email : emailId, password : password})})
+            const requestResponse = await request.json()
             if(request.ok){
                 const response = await request.json()
                 setCurrentManager(response.manager)
                 localStorage.setItem("aes52", response.token)
                 navigate("/manager-dashboard")
+            }else{
+                console.log(requestResponse)
+                setSnackBar(true)
+                setSnackBarText(requestResponse.message)
             }
-        }catch{
-            navigate("/manager-login")
+        }catch(err){
+            setSnackBar(true)
+            setSnackBarText("Something went Wrong, "+err)
         }
     }
 
