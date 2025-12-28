@@ -87,12 +87,14 @@ export default function ClockIn(){
         const patternStartOfShift = startOfShift.split(":")
         const endOfShift = shiftPattern[1]
         const date = new Date()
+        date.setDate(date.getDate() - 4)
         const time = date.toLocaleTimeString()
         const day = date.toDateString()
         let isLate = false
         let lateString = ""
 
         const patternTime = new Date()
+        patternTime.setDate(patternTime.getDate() - 4)
         patternTime.setHours(patternStartOfShift[0])
         patternTime.setMinutes(patternStartOfShift[1])
         patternTime.setSeconds(0)

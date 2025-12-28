@@ -1,26 +1,52 @@
-import { Box, Container, Typography, Button, IconButton } from "@mui/material"
+import { Box, Container, Typography, Button, IconButton, Snackbar } from "@mui/material"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import GoogleButton from '@mui/icons-material/android'
-import { useContext, useEffect } from "react";
+import { use, useContext, useEffect, useState } from "react";
 import { AppContext } from "../ContextProvider";
+import { set } from "mongoose";
 
 function StaffLogin(){
 
     const [params] = useSearchParams();
-    const token = params.get('token')
+    const messageFromParams = params.get("message")
+    const tokenFromParams = params.get("token")
+    const msgFromParams = params.get("msg")
     const navigate = useNavigate()
+    const existingToken = localStorage.getItem("aes52")
+    const [displaySnackbar, setDisplaySnackbar] = useState(false)
+    const [snackbarMessage, setDisplaySnackbarMessage] = useState("")
 
     const { setCurrentUser } = useContext(AppContext)
 
+    function handleSnackBarClose(){
+      setDisplaySnackbar(false)
+      setDisplaySnackbarMessage("")
+    }
+
     useEffect(()=>{
-      if(token != null && token.length > 0){
-        setCurrentUser(token)
-        localStorage.setItem("aes52", token)
-        if(localStorage.getItem("aes52")){
-          navigate("/dashboard")
-        }
+      if(tokenFromParams != null && tokenFromParams.length > 0){
+        fetch(`http://localhost:3000/api/staff-auth`, {method : "GET", headers : {'Content-Type' : 'application/json', 'Authorization' : `Bearer ${tokenFromParams}`}}).then((response) => {
+          if(response.status == 200 && response.ok){
+            localStorage.removeItem("aes52")
+            localStorage.setItem("aes52", `${tokenFromParams}`)
+            navigate("/dashboard")
+          }else{
+            setDisplaySnackbar(true)
+            setDisplaySnackbarMessage("Unauthorised, please login again")
+          }
+        })
       }
-    }, [token])
+      else{
+        fetch("http://localhost:3000/api/staff-auth", {method : "GET", headers : {'Content-Type' : 'application/json', 'Authorization' : `Bearer ${existingToken}`}}).then((response)=>{
+          if(response.status == 200 && response.ok){
+            navigate(`/dashboard`, {state : {"from" : "staff-login", "token" : existingToken}})
+          }else{
+            setDisplaySnackbar(true)
+            setDisplaySnackbarMessage("session expired, please login again")
+          }
+        })
+      }
+    }, [])
     
     return (
         <>
@@ -35,6 +61,17 @@ function StaffLogin(){
                   </Box>
                 </Container>
             </Box>
+            {
+              displaySnackbar ? (
+                <Snackbar
+                  anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+                  open={displaySnackbar}
+                  message={snackbarMessage}
+                  autoHideDuration={5000}
+                  onClose={handleSnackBarClose}
+                />
+              ) : (<></>)
+            }
         </>
     )
 

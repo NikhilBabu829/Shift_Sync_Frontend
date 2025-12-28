@@ -18,7 +18,7 @@ export default function ManagerLogin(){
     function handleSnackBarClose(){
         setSnackBar(false)
     }
-
+    
     useEffect(()=>{
         let msg = params.get('msg')
         if(msg !== null){
@@ -47,9 +47,9 @@ export default function ManagerLogin(){
             const request = await fetch("http://localhost:3000/api/manager-login", {method : "POST", headers : {'Content-Type' : 'application/json'}, body : JSON.stringify({email : emailId, password : password})})
             const requestResponse = await request.json()
             if(request.ok){
-                const response = await request.json()
-                setCurrentManager(response.manager)
-                localStorage.setItem("aes52", response.token)
+                console.log(requestResponse)
+                setCurrentManager(requestResponse.manager)
+                localStorage.setItem("aes52", requestResponse.token)
                 navigate("/manager-dashboard")
             }else{
                 console.log(requestResponse)

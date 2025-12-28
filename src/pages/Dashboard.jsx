@@ -1,7 +1,7 @@
 import Typography from '@mui/material/Typography'
 import { useContext, useEffect, useState } from 'react'
 import { AppContext } from '../ContextProvider'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import CircularProgress from '@mui/material/CircularProgress';
 import { Box, Button, Snackbar} from '@mui/material'
 import { Token } from '@mui/icons-material';
@@ -15,9 +15,11 @@ const settings = ["Logout", "Clock-In", "Clock-Out"]
 
 function Dashboard(){
 
-    const params = useSearchParams()
+    const [params] = useSearchParams()
+    const tokenFromURL = params.get("token")
     const [loading, setLoading] = useState(true)
     const [currentUser, setCurrentUser] = useState(null)
+    const location = useLocation()
     const navigate = useNavigate()
     let userChecked = false
     const getToken = localStorage.getItem("aes52")
@@ -75,6 +77,9 @@ function Dashboard(){
     }
 
     useEffect(()=>{
+        if(location.state?.token){
+            console.log("true")
+        }
         if(getToken != null && getToken.length > 0){
             checkUser()
         }else{
