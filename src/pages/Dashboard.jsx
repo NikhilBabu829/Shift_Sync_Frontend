@@ -1,15 +1,16 @@
 import Typography from '@mui/material/Typography'
-import { useContext, useEffect, useState } from 'react'
-import { AppContext } from '../ContextProvider'
+import { useEffect, useState } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import CircularProgress from '@mui/material/CircularProgress';
 import { Box, Button, Snackbar} from '@mui/material'
-import { Token } from '@mui/icons-material';
 import AppBar from '@mui/material/AppBar'
 import Container from '@mui/material/Container'
 import { Avatar, IconButton, Menu, MenuItem, Tooltip } from '@mui/material'
+import Card from '@mui/material/Card';
+import CardActions from '@mui/material/CardActions';
+import CardContent from '@mui/material/CardContent';
 
-// import ClockIn from '../components/ClockIn'
+import LogoutIcon from '@mui/icons-material/Logout';
 
 const settings = ["Logout", "Clock-In", "Clock-Out"]
 
@@ -17,6 +18,7 @@ function Dashboard(){
 
     const [params] = useSearchParams()
     const tokenFromURL = params.get("token")
+    const msgFromURL = params.get("message")
     const [loading, setLoading] = useState(true)
     const [currentUser, setCurrentUser] = useState(null)
     const location = useLocation()
@@ -51,6 +53,18 @@ function Dashboard(){
         }
     }
 
+    const staffClockIn = ()=>{
+        navigate("/staff-clock-in")
+    }
+
+    const staffClockOut = ()=>{
+        navigate("/staff-clock-out")
+    }
+
+    const swafShift = ()=>{
+        navigate("/staff-swap")
+    }
+
     async function checkUser(){
         try{
             const authorizationString = `Bearer ${getToken}`
@@ -77,6 +91,10 @@ function Dashboard(){
     }
 
     useEffect(()=>{
+        if(msgFromURL.length > 0 && msgFromURL != null){
+            setSnackBarText(msgFromURL)
+            setDisplaySnackBar(true)
+        }
         if(location.state?.token){
             console.log("true")
         }
@@ -100,6 +118,10 @@ function Dashboard(){
             <AppBar position="static">
                 <Container maxWidth="xl" sx={{display : "flex", alignItems : "center", justifyContent : "space-between", padding : {xs : "3%", md : "2%", lg : "1%"}}}>
                     <Typography variant="h5" color="white">Shift-Sync</Typography>
+                    <Typography variant="h5" color="primary">Hi <Typography variant='inherit' component="span" color="warning">{currentUser?.staffName}</Typography></Typography>
+                    <Button variant="text" color="error" startIcon={<LogoutIcon />}>
+                      Logout
+                    </Button>
                     <Tooltip title="Open settings">
                         <IconButton sx={{ p: 0 }} onClick={handleUserOptions}>
                             <Avatar alt="Remy Sharp" src={currentUser?.profile_picture || undefined}/>
@@ -129,11 +151,51 @@ function Dashboard(){
                     </Menu>
                 </Container>
             </AppBar>
-            <Box sx={{textAlign : "center", paddingTop : "3%", paddingBottom : "3%"}}>
-                <Typography variant="h1" color="primary" sx={{fontSize : {xs : "3rem", lg : "4rem"}}}>Hi <Typography variant='inherit' component="span" color="warning">{currentUser?.staffName}</Typography></Typography>
-                <Button variant="outlined" color="primary" onClick={()=>{navigate("/staff-swap")}}>
-                    Plan a swap?
-                </Button>
+            <Box sx={{textAlign : "center", paddingTop : "3%", paddingBottom : "3%", paddingLeft : "2%", paddingRight : "2%"}}>
+                <Box sx={{maxWidth : "100%", display : "flex", justifyContent : "space-evenly"}}>
+                    <Card variant="outlined" sx={{minWidth : "18%", backgroundColor : "#ffb703"}}>
+                        <CardContent>
+                            <Box sx={{maxWidth : "100%"}}>
+                                <Typography component="div">
+                                    Clock In
+                                </Typography>
+                            </Box>
+                        </CardContent>
+                        <Box sx={{maxWidth : "100%", display : "flex", justifyContent : "center"}}>
+                            <CardActions>
+                                <Button variant='contained' size="small" color='inherit' onClick={staffClockIn}>Start your Shift</Button>
+                            </CardActions>
+                        </Box>
+                    </Card>
+                    <Card variant="outlined" sx={{minWidth : "18%", backgroundColor : "#002d44ff"}}>
+                        <CardContent>
+                            <Box sx={{maxWidth : "100%"}}>
+                                <Typography component="div">
+                                    Clock Out
+                                </Typography>
+                            </Box>
+                        </CardContent>
+                        <Box sx={{maxWidth : "100%", display : "flex", justifyContent : "center"}}>
+                            <CardActions>
+                                <Button variant='contained' size="small" color='inherit' onClick={staffClockOut}>End your Shift</Button>
+                            </CardActions>
+                        </Box>
+                    </Card>
+                    <Card variant="outlined" sx={{minWidth : "18%", backgroundColor : "#fb8500"}}>
+                        <CardContent>
+                            <Box sx={{maxWidth : "100%"}}>
+                                <Typography component="div">
+                                    Plan Swap?
+                                </Typography>
+                            </Box>
+                        </CardContent>
+                        <Box sx={{maxWidth : "100%", display : "flex", justifyContent : "center"}}>
+                            <CardActions>
+                                <Button variant='contained' size="small" color='inherit' onClick={swafShift}>Swap</Button>
+                            </CardActions>
+                        </Box>
+                    </Card>
+                </Box>
             </Box>
             {
                 displaySnackBar ? (

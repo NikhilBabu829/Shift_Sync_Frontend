@@ -47,7 +47,6 @@ export default function StaffSwap(){
             swap_shift_start_time : swapingTime.toLocaleString(),
             swap_shift_end_time : swappingEndTime.toLocaleString()
         }
-        console.log(dataFormat)
         const authorizationString = `Bearer ${userAuth}`
         const request = await fetch("http://localhost:3000/api/initiate-swap", {method : "POST", headers : {'Content-Type' : 'application/json', 'authorization' : authorizationString}, body : JSON.stringify(dataFormat)})
         if(request.ok){
