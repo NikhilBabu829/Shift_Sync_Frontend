@@ -91,7 +91,7 @@ function Dashboard(){
     }
 
     useEffect(()=>{
-        if(msgFromURL.length > 0 && msgFromURL != null){
+        if(msgFromURL != null && msgFromURL.length > 0){
             setSnackBarText(msgFromURL)
             setDisplaySnackBar(true)
         }
