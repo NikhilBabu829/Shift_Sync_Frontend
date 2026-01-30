@@ -2,6 +2,7 @@ import { useNavigate, useSearchParams } from "react-router-dom"
 import Typography from '@mui/material/Typography'
 import { useEffect, useState } from "react"
 import { Box, CircularProgress, Container, FormControl, FormLabel, FormHelperText, MenuItem, Select, Accordion, AccordionSummary, AccordionDetails, Button, Snackbar, TextField } from "@mui/material"
+import { set } from "mongoose"
 
 const shiftType = ['7:00-15:30', '8:00-16:30', '10:00-18:30', '13:30-22:00', '16:00-00:30']
 
@@ -17,7 +18,8 @@ export default function ClockIn(){
     const [longitude, setLongitude] = useState(0)
     const [latitude, setLatitude] = useState(0)
     const [currentLocationAccuracy, setCurrentLocationAccuracy] = useState(0)
-    const [userAuthenticated, setUserAutenticated] = useState(false)
+    const [userAuthenticated, setUserAutenticated] = useState(false) //TODO use this to check if the user is authenticated or not
+    const [passedAuth, setPassedAuth] = useState(false)
     const [loading, setLoading] = useState(false)
     const [displaySnackBar, setSnackBar] = useState(false)
     const [displayMessage, setDisplayMessage] = useState("")
@@ -35,6 +37,9 @@ export default function ClockIn(){
             const request = await fetch("http://localhost:3000/api/staff-auth", {method : "GET", headers : {'Content-Type' : 'application/json', 'authorization' : authorizationString}}) 
             if(request.ok){
                 const response = await request.json()
+                if(response.user){
+                    return true
+                }
             }else{
                 const msg = new URLSearchParams({
                     message : "Not Valid, Please Login Again!"
@@ -52,16 +57,26 @@ export default function ClockIn(){
     }
 
     useEffect(()=>{
-        if(token !== null && token.length > 0){
-            checkUser()
-        }
-        navigator.geolocation.getCurrentPosition((coords)=>{
-            setLongitude(coords.coords.longitude)
-            setLatitude(coords.coords.latitude)
-            setCurrentLocationAccuracy(coords.coords.accuracy)
-        })
-
+        if(token == null || token.length == 0) return
+        (async ()=>{
+            const response = await checkUser()
+            setUserAutenticated(response)
+            setPassedAuth(true)
+        })()
     }, [])
+
+    useEffect(()=>{
+        if (!passedAuth) return
+        if(userAuthenticated){
+            navigator.geolocation.getCurrentPosition((coords)=>{
+                setLongitude(coords.coords.longitude)
+                setLatitude(coords.coords.latitude)
+                setCurrentLocationAccuracy(coords.coords.accuracy)
+            })
+        }else{
+            navigate("/staff-login?message=Please login to continue")
+        }
+    }, [userAuthenticated])
 
     async function clockInRequest(){
         console.log("We are in")
