@@ -1,8 +1,10 @@
 import { useNavigate, useSearchParams } from "react-router-dom"
 import Typography from '@mui/material/Typography'
 import { useEffect, useState } from "react"
-import { Box, CircularProgress, Container, FormControl, FormLabel, FormHelperText, MenuItem, Select, Accordion, AccordionSummary, AccordionDetails, Button, Snackbar, TextField } from "@mui/material"
-import { set } from "mongoose"
+import { Container, FormControl, FormLabel, Select, Button, Snackbar, TextField } from "@mui/material"
+import AppBar from '@mui/material/AppBar'
+import { IconButton, Menu, MenuItem, Tooltip, Avatar } from "@mui/material"
+import LogoutIcon from '@mui/icons-material/Logout';
 
 const shiftType = ['7:00-15:30', '8:00-16:30', '10:00-18:30', '13:30-22:00', '16:00-00:30']
 
@@ -18,13 +20,13 @@ export default function ClockIn(){
     const [longitude, setLongitude] = useState(0)
     const [latitude, setLatitude] = useState(0)
     const [currentLocationAccuracy, setCurrentLocationAccuracy] = useState(0)
-    const [userAuthenticated, setUserAutenticated] = useState(false) //TODO use this to check if the user is authenticated or not
+    const [userAuthenticated, setUserAutenticated] = useState(false)
     const [passedAuth, setPassedAuth] = useState(false)
+    const [currentUser, setCurrentUser] = useState(null)
     const [loading, setLoading] = useState(false)
     const [displaySnackBar, setSnackBar] = useState(false)
     const [displayMessage, setDisplayMessage] = useState("")
     const [shift, setSelectShift] = useState(shiftType[0])
-    const [geoFence, setGeoFence] = useState(false)
     const [isLate, setIsLate] = useState(false)
     const navigate = useNavigate()
     const [params] = useSearchParams()
@@ -38,6 +40,7 @@ export default function ClockIn(){
             if(request.ok){
                 const response = await request.json()
                 if(response.user){
+                    setCurrentUser(response.user)
                     return true
                 }
             }else{
@@ -153,6 +156,22 @@ export default function ClockIn(){
     }
 
     return (
+        <>
+        <AppBar position="absolute">
+                <Container maxWidth="xl" sx={{display : "flex", alignItems : "center", justifyContent : "space-between", padding : {xs : "3%", md : "2%", lg : "1%"}}}>
+                    <Typography variant="h5" color="white">Shift-Sync</Typography>
+                    <Typography variant="h5" color="primary">Hi <Typography variant='inherit' component="span" color="warning">{currentUser?.staffName}</Typography></Typography>
+                    <Button variant="text" color="error" startIcon={<LogoutIcon />}>
+                      Logout
+                    </Button>
+                    <Tooltip title="Open settings"> {/* TODO: add options here for the profile picture button, in order to do so you have to handle the click on the icon button and then add the options, refer the dashboard menu to see how it was implemented */}
+                        <IconButton sx={{ p: 0 }} >
+                            <Avatar alt="Remy Sharp" src={currentUser?.profile_picture || undefined}/>
+                        </IconButton>
+                    </Tooltip>
+                </Container>
+            </AppBar>
+        {/* TODO: see if you can reuse the navbar in the dashboard page. */}
         <Container maxWidth="lg" sx={{paddingTop : "1%", paddingBottom : "1%", minHeight : "100vh", minWidth : "100%", display : "flex", justifyContent : "center", alignItems : "center", flexDirection : "column"}}>
 
             <form onSubmit={handleClockIn}>
@@ -187,6 +206,7 @@ export default function ClockIn(){
             <Typography variant="body1" sx={{maxWidth : "40%", marginTop : "1%"}} color="inherit">We will track your location and see if you are at the needed place, once you are, we are going to clock you In based on the time (the time is the current time you clicked the button) you clicked the button</Typography>
 
         </Container>
+        </>
     )
 
 }
