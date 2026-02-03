@@ -75,7 +75,7 @@ export default function ClockIn(){
                 setLongitude(coords.coords.longitude)
                 setLatitude(coords.coords.latitude)
                 setCurrentLocationAccuracy(coords.coords.accuracy)
-            })
+            }, (error) => {console.log(error)} ,{enableHighAccuracy : true, timeout : 1000, maximumAge : 0})
         }else{
             navigate("/staff-login?message=Please login to continue")
         }
@@ -137,7 +137,7 @@ export default function ClockIn(){
 
     function handleClockIn(e){
         e.preventDefault()
-        if((longitude != 0 && longitude != null) && (latitude !=0 && latitude != null) && (currentLocationAccuracy >= 35)){
+        if((longitude != 0 && longitude != null) && (latitude !=0 && latitude != null) && (currentLocationAccuracy <= 35)){
             if((longitude <= geoFLongPlus && longitude >= geoFLongNeg) && (latitude <= geoFLatPlus && latitude >= geoLatNeg)){
                 clockInRequest()
             }else{
@@ -156,6 +156,7 @@ export default function ClockIn(){
     }
 
     return (
+        // TODO: this whole page does not have a snackbar integrated to show messages to the user
         <>
         <AppBar position="absolute">
                 <Container maxWidth="xl" sx={{display : "flex", alignItems : "center", justifyContent : "space-between", padding : {xs : "3%", md : "2%", lg : "1%"}}}>
