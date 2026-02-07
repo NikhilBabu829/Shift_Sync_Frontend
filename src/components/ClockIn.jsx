@@ -94,6 +94,7 @@ export default function ClockIn(){
         const currentTIme = new Date()
         let isLateString = ""
 
+        // TODO: check if the late string is acting the right way it should be. refer to the clockout page
         const differenceInTime = startOfShiftTime - currentTIme
         const diffHours = Math.floor(differenceInTime / (1000 * 60 * 60));
         const diffMinutes = Math.floor((differenceInTime % (1000 * 60 * 60)) / (1000 * 60));

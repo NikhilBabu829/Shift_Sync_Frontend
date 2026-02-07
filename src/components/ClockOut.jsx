@@ -33,6 +33,9 @@ export default function ClockOut(){
 
     const token = localStorage.getItem("aes52")
 
+    // TODO when i click the clockout button we are going to check if the user is already clocked in for the day, if they are we let them to clock out or else we are going to send them back to the dashboard with a message saying they have to clock in in order for them to clock out.
+    // TODO have the clock out and clock in models be in sync, (this is a backend change) the clock out is going to have a referece to the clock in document
+
     async function checkUser(){
         try{
             const authorizationString = `Bearer ${token}`
@@ -78,14 +81,65 @@ export default function ClockOut(){
     
     async function clockOutRequest(){
         try{
-            // TODO: use the user id to get all the clock in they have made till date, compare those clocks in to see if they have a clock in for the current date, if they do allow them to clock out or else show a message saying they are not allowed to clock out as they havent clocked in yet.
             const currentUserId = currentUser._id
-            console.log(currentUserId)
             const authorizationString = `Bearer ${token}`
-            console.log(authorizationString)
-            const request = await fetch(`http://localhost:3000/api/see-staff/${currentUserId}`, { method : "GET", headers : { 'Content-Type' : 'application/json', 'authorization' : authorizationString }})
+            const request = await fetch(`http://localhost:3000/api/view-all-clockins/${currentUserId}`, { method : "GET", headers : { 'Content-Type' : 'application/json', 'authorization' : authorizationString }})
             const response = await request.json()
-            console.log(response)
+            if(request.ok && response.length >= 0 ){
+                let clockedOutLate = ""
+                const possibleCurrentClockIn = response[response.length - 1]
+                const currentDate = new Date()
+                console.log(currentDate.toLocaleTimeString())
+                const clockInDate = new Date(possibleCurrentClockIn.dateClockedIn)
+                if(currentDate.getDate() == clockInDate.getDate()){
+                    const splitShift = shiftSelection.split("-")
+                    const shiftStart = splitShift[0]
+                    const shiftEnd = splitShift[1]
+                    const patternEndOfShift = shiftEnd.split(":")
+                    const endOfShiftTime = new Date()
+                    endOfShiftTime.setHours(patternEndOfShift[0], patternEndOfShift[1], 0)
+                    console.log(endOfShiftTime.toLocaleTimeString())
+                    const differenceInTime = Math.abs(currentDate - endOfShiftTime)
+                    console.log(differenceInTime)
+                    const diffHours = Math.floor(differenceInTime / (1000 * 60 * 60));
+                    const diffMinutes = Math.floor((differenceInTime % (1000 * 60 * 60)) / (1000 * 60));
+                    const diffSeconds = Math.floor((differenceInTime % (1000 * 60)) / 1000); 
+
+                    if(differenceInTime < 0){
+                        setIsLate(true)
+                        clockedOutLate = "late"
+                    }else if(differenceInTime >= 0){
+                        setIsLate(false)
+                        clockedOutLate = "early"
+                    }else{
+                        setIsLate(false)
+                        clockedOutLate = "on time"
+                    }
+
+                    console.log(`You are ${clockedOutLate} by ${Math.abs(diffHours)} hours, ${Math.abs(diffMinutes)} minutes and ${Math.abs(diffSeconds)} seconds`)
+
+                    const data = {
+                        startOfShift : shiftStart,
+                        endOfShift : shiftEnd,
+                        timeClockedOut : currentDate.toLocaleTimeString(),
+                        dateClockedOut : currentDate.toDateString(),
+                        isLate : isLate
+                    }
+
+                    const authorizationString = `Bearer ${token}`
+                    const clockOutRequest = await fetch('http://localhost:3000/api/staff-clock-out', {method : "POST", headers : {"Content-Type" : "application/json", "authorization" : authorizationString}, body : JSON.stringify(data)})
+                    if(clockOutRequest.ok){
+                        const clockOutResponse = await clockOutRequest.json()
+                        console.log(clockOutResponse)
+                        navigate("/dashboard?message=Clock Out Successful")
+                    }else{
+                        navigate("/dashboard?message=Clock Out Failed, Please Try Again")
+                    }
+
+                }else{
+                    navigate("/dashboard?message=You cannot clock out as you have not clocked in today")
+                }
+            }
         }catch(err){
             console.log(err)
         }

@@ -14,6 +14,8 @@ import LogoutIcon from '@mui/icons-material/Logout';
 
 const settings = ["Logout", "Clock-In", "Clock-Out"]
 
+// TODO display if the user is currently clocked in or not, if they are clocked in display that they have to clock out
+
 function Dashboard(){
 
     const [params] = useSearchParams()
