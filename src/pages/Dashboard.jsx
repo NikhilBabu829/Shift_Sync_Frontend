@@ -25,6 +25,7 @@ function Dashboard(){
     const [currentUser, setCurrentUser] = useState(null)
     const location = useLocation()
     const navigate = useNavigate()
+    const [userAuth, setUserAuth] = useState(false)
     let userChecked = false
     const getToken = localStorage.getItem("aes52")
     const [displaySnackBar, setDisplaySnackBar] = useState(false)
@@ -76,6 +77,7 @@ function Dashboard(){
                 setCurrentUser(response.user)
                 userChecked = true
                 setLoading(false)
+                return true
             }else{
                 const msg = new URLSearchParams({
                     message : "Not Valid, Please Login Again!"
@@ -101,7 +103,10 @@ function Dashboard(){
             console.log("true")
         }
         if(getToken != null && getToken.length > 0){
-            checkUser()
+            (async ()=>{
+                const response = await checkUser()
+                setUserAuth(response)
+            })()
         }else{
             const msg = new URLSearchParams({
                 message : "You Need to Login"
@@ -109,6 +114,26 @@ function Dashboard(){
             navigate(`/staff-login?${msg}`)
         }
     }, [])
+
+    async function getUser(){
+        try{
+            const authorizationString = `Bearer ${getToken}`
+            const request = await fetch(`http://localhost:3000/api/view-all-clockins/${currentUser._id}`, {method : "GET", headers : {'Content-Type' : 'application/json', 'authorization' : authorizationString}})
+            if(request.ok){
+                const response = await request.json()
+                console.log(response)
+            }
+        }catch(err){
+            console.log(err)
+        }
+    }
+
+    useEffect(()=>{
+        if(!userAuth) return
+        if(userAuth){
+            getUser()
+        }
+    },[userAuth])
 
     return loading && userChecked ? 
     (
@@ -210,6 +235,9 @@ function Dashboard(){
                     />
                 ) : (<></>)
             }
+            <Box>
+                <Typography variant="h1" color="inherit">Status : Not Clocked in yet</Typography>
+            </Box>
         </>
     )
 }
