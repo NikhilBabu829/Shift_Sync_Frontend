@@ -18,7 +18,7 @@ export default function NavBarMaanger(){
 
     function handleMenuClick(e){
         if(e.target.innerText === "Download Clock Data"){
-            window.open('http://localhost:3000/api/download-attendance', '_blank');
+            window.open(`${import.meta.env.VITE_API_BASE_URL}/api/download-attendance`, '_blank');
         }
     }
 

@@ -1,3 +1,4 @@
+import apiFetch from '../utils/apiFetch.js';
 import { Container, FormControl, TextField, Typography, Button, Snackbar } from "@mui/material"
 import { useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
@@ -30,7 +31,7 @@ export default function ManagerInvite(){
         const to = toEmail
         console.log(to)
         try{
-            const request = await fetch("http://localhost:3000/api/staff-add", {method : "POST", headers : {'Content-Type' : 'application/json', 'authorization' : authorizationString}, body : JSON.stringify({to})})
+            const request = await apiFetch(`${import.meta.env.VITE_API_BASE_URL}/api/staff-add`, {method : "POST", headers : {'Content-Type' : 'application/json', 'authorization' : authorizationString}, body : JSON.stringify({to})})
             if(request.ok){
                 const response = await request.json()
                 console.log(response)

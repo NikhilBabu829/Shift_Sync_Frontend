@@ -1,3 +1,4 @@
+import apiFetch from '../utils/apiFetch.js';
 import { useContext, useEffect, useState } from "react";
 import { AppContext } from "../ContextProvider";
 import NavBar from "../components/NavBar";
@@ -48,7 +49,7 @@ export default function StaffSwap(){
             swap_shift_end_time : swappingEndTime.toLocaleString()
         }
         const authorizationString = `Bearer ${userAuth}`
-        const request = await fetch("http://localhost:3000/api/initiate-swap", {method : "POST", headers : {'Content-Type' : 'application/json', 'authorization' : authorizationString}, body : JSON.stringify(dataFormat)})
+        const request = await apiFetch(`${import.meta.env.VITE_API_BASE_URL}/api/initiate-swap`, {method : "POST", headers : {'Content-Type' : 'application/json', 'authorization' : authorizationString}, body : JSON.stringify(dataFormat)})
         if(request.ok){
             const response = await request.json()
             setSnackBarText(`${response.message}`)
@@ -59,7 +60,7 @@ export default function StaffSwap(){
     async function makeAPICAll(){
         try{
             const authorizationString = `Bearer ${userAuth}`
-            const request = await fetch("http://localhost:3000/api/staff", {method : "GET", headers : {'Content-Type' : 'application/json', 'authorization' : authorizationString}})
+            const request = await apiFetch(`${import.meta.env.VITE_API_BASE_URL}/api/staff`, {method : "GET", headers : {'Content-Type' : 'application/json', 'authorization' : authorizationString}})
             if(request.ok){
                 const response = await request.json()
                 setLoggeddInUser(response.user)

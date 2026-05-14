@@ -1,3 +1,4 @@
+import apiFetch from '../utils/apiFetch.js';
 import { useState } from 'react'
 import {
   Box, Button, Typography, TextField, Snackbar,
@@ -69,7 +70,7 @@ export default function Register() {
 
     setLoading(true)
     try {
-      const res = await fetch('http://localhost:3000/api/manager-sign-up', {
+      const res = await apiFetch(`${import.meta.env.VITE_API_BASE_URL}/api/manager-sign-up`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
