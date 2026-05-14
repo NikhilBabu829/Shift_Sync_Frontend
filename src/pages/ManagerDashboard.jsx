@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import {
   Box, Button, Typography, CircularProgress, Avatar, Chip,
   LinearProgress, TextField, InputAdornment, IconButton, Paper,
-  Table, TableBody, TableCell, TableContainer, TableHead, TableRow
+  Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Snackbar, Alert
 } from "@mui/material";
 import DashboardIcon from "@mui/icons-material/Dashboard";
 import PeopleIcon from "@mui/icons-material/People";
@@ -59,6 +59,12 @@ export default function ManagerDashboard() {
   const [loading, setLoading]               = useState(true);
   const [activeNav, setActiveNav]           = useState("Overview");
   const [alertVisible, setAlertVisible]     = useState(true);
+  const [pendingSwaps, setPendingSwaps]     = useState([
+    { id: 1, requester: "Elena Rodriguez", requestedWith: "Marcus Chen", date: "Saturday AM", shift: "08:00 - 16:00" },
+    { id: 2, requester: "David Wilson", requestedWith: "Sarah Jenkins", date: "Sunday PM", shift: "16:00 - 00:30" },
+    { id: 3, requester: "Alex Morgan", requestedWith: "Elena Rodriguez", date: "Friday AM", shift: "07:00 - 15:30" }
+  ]);
+  const [snack, setSnack] = useState({ open: false, msg: '', severity: 'success' });
   const navigate = useNavigate();
   const managerToken = localStorage.getItem("aes52");
 
@@ -89,9 +95,20 @@ export default function ManagerDashboard() {
     navigate("/");
   }
 
+  function handleApproveSwap(id) {
+    setPendingSwaps(pendingSwaps.filter(swap => swap.id !== id));
+    setSnack({ open: true, msg: "Swap Request Approved", severity: "success" });
+  }
+
+  function handleDenySwap(id) {
+    setPendingSwaps(pendingSwaps.filter(swap => swap.id !== id));
+    setSnack({ open: true, msg: "Swap Request Denied", severity: "error" });
+  }
+
   function handleNavClick(label) {
     setActiveNav(label);
-    if (label === "Roster" || label === "Directory") navigate("/invite-staff");
+    if (label === "Roster") navigate("/manager-roster");
+    if (label === "Directory") navigate("/invite-staff");
     if (label === "Attendance") window.open(`${BASE}/api/download-attendance`, "_blank");
   }
 
@@ -293,10 +310,44 @@ export default function ManagerDashboard() {
               <Typography variant="caption" sx={{ color: "#6b7280", fontWeight: 600, letterSpacing: "0.06em" }}>
                 PENDING SWAPS
               </Typography>
-              <Typography variant="h4" fontWeight={800} color={BLUE} sx={{ mt: 0.5, mb: 0.5 }}>08</Typography>
+              <Typography variant="h4" fontWeight={800} color={BLUE} sx={{ mt: 0.5, mb: 0.5 }}>{pendingSwaps.length}</Typography>
               <Typography variant="caption" sx={{ color: "#dc2626", fontWeight: 600 }}>
-                3 requiring immediate review
+                {pendingSwaps.length} requiring immediate review
               </Typography>
+            </Paper>
+
+            {/* Swap Approvals */}
+            <Paper elevation={0} sx={{ border: "1px solid #e5e7eb", borderRadius: 3, p: 3 }}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 2 }}>
+                <SwapHorizIcon sx={{ color: BLUE, fontSize: 18 }} />
+                <Typography variant="subtitle2" fontWeight={700} color={BLUE}>Swap Approvals</Typography>
+              </Box>
+              {pendingSwaps.length === 0 ? (
+                <Typography variant="body2" color="text.secondary">No pending swap requests.</Typography>
+              ) : (
+                <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
+                  {pendingSwaps.map((swap) => (
+                    <Box key={swap.id} sx={{ p: 2, border: "1px solid #e5e7eb", borderRadius: 2, display: "flex", justifyContent: "space-between", alignItems: "center", bgcolor: "#f9fafb" }}>
+                      <Box>
+                        <Typography variant="body2" fontWeight={600} color={BLUE}>
+                          {swap.requester} <Box component="span" sx={{ color: "text.secondary", fontWeight: 400 }}>wants to swap with</Box> {swap.requestedWith}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
+                          {swap.date} ({swap.shift})
+                        </Typography>
+                      </Box>
+                      <Box sx={{ display: "flex", gap: 1 }}>
+                        <Button size="small" variant="contained" sx={{ bgcolor: "#16a34a", '&:hover': { bgcolor: "#15803d" }, minWidth: 0, px: 2 }} onClick={() => handleApproveSwap(swap.id)}>
+                          Approve
+                        </Button>
+                        <Button size="small" variant="outlined" color="error" sx={{ minWidth: 0, px: 2 }} onClick={() => handleDenySwap(swap.id)}>
+                          Deny
+                        </Button>
+                      </Box>
+                    </Box>
+                  ))}
+                </Box>
+              )}
             </Paper>
 
             {/* Coverage alert */}
@@ -377,7 +428,7 @@ export default function ManagerDashboard() {
                 {[
                   { label: "Bulk Message Staff",    action: () => {} },
                   { label: "Download Weekly CSV",   action: () => window.open(`${BASE}/api/download-attendance`, "_blank") },
-                  { label: "Configure AI Roster",   action: () => {} },
+                  { label: "Configure AI Roster",   action: () => navigate("/manager-roster") },
                 ].map(({ label, action }) => (
                   <Button
                     key={label} fullWidth variant="outlined" size="small"
@@ -467,6 +518,17 @@ export default function ManagerDashboard() {
 
         </Box>
       </Box>
+
+      <Snackbar
+          open={snack.open}
+          autoHideDuration={4000}
+          onClose={() => setSnack(s => ({ ...s, open: false }))}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+          <Alert severity={snack.severity} onClose={() => setSnack(s => ({ ...s, open: false }))} sx={{ width: '100%' }}>
+              {snack.msg}
+          </Alert>
+      </Snackbar>
     </Box>
   );
 }

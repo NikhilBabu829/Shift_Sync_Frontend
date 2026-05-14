@@ -91,6 +91,16 @@ export default function ClockIn() {
         return polls
     }
 
+    function haversineDistance(lat1, lon1, lat2, lon2) {
+        const R = 6371e3;
+        const p1 = lat1 * Math.PI/180;
+        const p2 = lat2 * Math.PI/180;
+        const dp = (lat2-lat1) * Math.PI/180;
+        const dl = (lon2-lon1) * Math.PI/180;
+        const a = Math.sin(dp/2) * Math.sin(dp/2) + Math.cos(p1) * Math.cos(p2) * Math.sin(dl/2) * Math.sin(dl/2);
+        return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
+    }
+
     async function handleClockIn(e) {
         e.preventDefault()
         if (!orgCoords?.lat || !orgCoords?.lng) {
@@ -123,6 +133,27 @@ export default function ClockIn() {
                 showSnack('Could not get your location. Please enable GPS and try again.', 'error')
             }
             return
+        }
+
+        // Spoof Detection Logic
+        const isIdentical = polls.length === 3 && polls.every(p => p.lat === polls[0].lat && p.lng === polls[0].lng);
+        if (isIdentical) {
+            setLoading(false)
+            showSnack('Spoofed location detected (static mock). Please disable VPN or mock location tools.', 'error')
+            return
+        }
+
+        if (polls.length === 3) {
+            const distMeters = haversineDistance(polls[0].lat, polls[0].lng, polls[2].lat, polls[2].lng);
+            const timeSecs = (polls[2].timestamp - polls[0].timestamp) / 1000;
+            if (timeSecs > 0) {
+                const speedKmph = (distMeters / timeSecs) * 3.6;
+                if (speedKmph > 100 && distMeters > 50) {
+                    setLoading(false)
+                    showSnack('Spoofed location detected (impossible speed). Please disable VPN or mock location tools.', 'error')
+                    return
+                }
+            }
         }
 
         const primary = polls[0]
