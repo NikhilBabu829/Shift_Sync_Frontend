@@ -1,9 +1,9 @@
+import apiFetch from '../utils/apiFetch.js';
 import { Box, Container, Typography, Button, IconButton, Snackbar } from "@mui/material"
 import { useNavigate, useSearchParams } from "react-router-dom"
-import GoogleButton from '@mui/icons-material/android'
-import { use, useContext, useEffect, useState } from "react";
+import GoogleButton from '@mui/icons-material/Android'
+import { useContext, useEffect, useState } from "react";
 import { AppContext } from "../ContextProvider";
-import { set } from "mongoose";
 
 function StaffLogin(){
 
@@ -25,7 +25,7 @@ function StaffLogin(){
 
     useEffect(()=>{
       if(tokenFromParams != null && tokenFromParams.length > 0){
-        fetch(`http://localhost:3000/api/staff-auth`, {method : "GET", headers : {'Content-Type' : 'application/json', 'Authorization' : `Bearer ${tokenFromParams}`}}).then((response) => {
+        apiFetch(`${import.meta.env.VITE_API_BASE_URL}/api/staff-auth`, {method : "GET", headers : {'Content-Type' : 'application/json', 'Authorization' : `Bearer ${tokenFromParams}`}}).then((response) => {
           if(response.status == 200 && response.ok){
             localStorage.removeItem("aes52")
             localStorage.setItem("aes52", `${tokenFromParams}`)
@@ -37,7 +37,7 @@ function StaffLogin(){
         })
       }
       else{
-        fetch("http://localhost:3000/api/staff-auth", {method : "GET", headers : {'Content-Type' : 'application/json', 'Authorization' : `Bearer ${existingToken}`}}).then((response)=>{
+        apiFetch(`${import.meta.env.VITE_API_BASE_URL}/api/staff-auth`, {method : "GET", headers : {'Content-Type' : 'application/json', 'Authorization' : `Bearer ${existingToken}`}}).then((response)=>{
           if(response.status == 200 && response.ok){
             navigate(`/dashboard`, {state : {"from" : "staff-login", "token" : existingToken}})
           }else{
@@ -54,7 +54,7 @@ function StaffLogin(){
                 <Container maxWidth="lg" sx={{textAlign : "center"}}>
                   <Typography variant="h1" color="primary" sx={{fontSize : {xs : "3rem"}}}>Staff Login</Typography>
                   <Box sx={{marginTop : {xs : "5%", lg : "1%"}}}>
-                    <Button variant="contained" color="error" endIcon={<GoogleButton/>} onClick={()=>{window.location.assign("http://localhost:3000/api/staff-login")}}>
+                    <Button variant="contained" color="error" endIcon={<GoogleButton/>} onClick={()=>{window.location.assign(`${import.meta.env.VITE_API_BASE_URL}/api/staff-login`)}}>
                       Login with 
                     </Button>
                     <Typography variant="subtitle2" color="warning" sx={{marginTop : {xs : "3%", md : "1%"}}}>*Access is limited to existing staff accounts. New staff must be added by a manager.*</Typography>

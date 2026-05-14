@@ -1,3 +1,4 @@
+import apiFetch from '../utils/apiFetch.js';
 import { useState, useContext, useEffect } from "react";
 import {
   Box, Typography, TextField, Button, Link, Paper,
@@ -44,7 +45,7 @@ export default function ManagerLogin() {
       return;
     }
     try {
-      const request = await fetch("http://localhost:3000/api/manager-login", {
+      const request = await apiFetch(`${import.meta.env.VITE_API_BASE_URL}/api/manager-login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password: pass }),

@@ -1,3 +1,4 @@
+import apiFetch from '../utils/apiFetch.js';
 import { useNavigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import {
@@ -11,7 +12,7 @@ import LocationOnIcon from '@mui/icons-material/LocationOn'
 
 const BLUE = '#1a3a6b'
 const shiftTypes = ['7:00-15:30', '8:00-16:30', '10:00-18:30', '13:30-22:00', '15:00-23:30', '16:00-00:30']
-const BASE = 'http://localhost:3000'
+const BASE = import.meta.env.VITE_API_BASE_URL
 
 export default function ClockOut() {
     const navigate = useNavigate()
@@ -31,7 +32,7 @@ export default function ClockOut() {
 
     async function checkAuth() {
         try {
-            const res = await fetch(`${BASE}/api/staff-auth`, {
+            const res = await apiFetch(`${BASE}/api/staff-auth`, {
                 headers: { authorization: `Bearer ${token}` }
             })
             if (res.ok) {
@@ -46,7 +47,7 @@ export default function ClockOut() {
 
     async function fetchOrgConfig() {
         try {
-            const res = await fetch(`${BASE}/api/org-config`, {
+            const res = await apiFetch(`${BASE}/api/org-config`, {
                 headers: { authorization: `Bearer ${token}` }
             })
             if (res.ok) {
@@ -120,7 +121,7 @@ export default function ClockOut() {
 
         // Verify clocked in today
         try {
-            const clockInsRes = await fetch(`${BASE}/api/view-all-clockins/${currentUser._id}`, {
+            const clockInsRes = await apiFetch(`${BASE}/api/view-all-clockins/${currentUser._id}`, {
                 headers: { authorization: `Bearer ${token}` }
             })
             const clockIns = await clockInsRes.json()
@@ -163,7 +164,7 @@ export default function ClockOut() {
                 clockInId: lastClockIn._id
             }
 
-            const res = await fetch(`${BASE}/api/staff-clock-out`, {
+            const res = await apiFetch(`${BASE}/api/staff-clock-out`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', authorization: `Bearer ${token}` },
                 body: JSON.stringify(data)

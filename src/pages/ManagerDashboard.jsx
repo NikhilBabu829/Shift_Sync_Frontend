@@ -1,3 +1,4 @@
+import apiFetch from '../utils/apiFetch.js';
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -25,7 +26,7 @@ import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 
 const BLUE = "#1a3a6b";
 const ACCENT = "#2563eb";
-const BASE = "http://localhost:3000";
+const BASE = import.meta.env.VITE_API_BASE_URL;
 
 const NAV_ITEMS = [
   { icon: <DashboardIcon fontSize="small" />, label: "Overview" },
@@ -63,7 +64,7 @@ export default function ManagerDashboard() {
 
   async function checkManagerAuth() {
     try {
-      const res = await fetch(`${BASE}/api/manager-auth`, {
+      const res = await apiFetch(`${BASE}/api/manager-auth`, {
         headers: { "Content-Type": "application/json", authorization: `Bearer ${managerToken}` },
       });
       if (res.ok) {
@@ -71,7 +72,7 @@ export default function ManagerDashboard() {
         setCurrentManager(data.manager);
         setLoading(false);
       } else {
-        navigate("/manager-login");
+          navigate("/manager-login");
       }
     } catch {
       navigate("/manager-login");

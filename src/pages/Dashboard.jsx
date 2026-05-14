@@ -1,3 +1,4 @@
+import apiFetch from '../utils/apiFetch.js';
 import Typography from '@mui/material/Typography'
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
@@ -84,7 +85,7 @@ function Dashboard(){
     async function checkUser(){
         try{
             const authorizationString = `Bearer ${getToken}`
-            const request = await fetch("http://localhost:3000/api/staff-auth", {method : "GET", headers : {'Content-Type' : 'application/json', 'authorization' : authorizationString}}) 
+            const request = await apiFetch(`${import.meta.env.VITE_API_BASE_URL}/api/staff-auth`, {method : "GET", headers : {'Content-Type' : 'application/json', 'authorization' : authorizationString}})
             if(request.ok){
                 const response = await request.json()
                 setCurrentUser(response.user)
@@ -131,7 +132,7 @@ function Dashboard(){
     async function getUser(){
         try{
             const authorizationString = `Bearer ${getToken}`
-            const request = await fetch(`http://localhost:3000/api/view-all-clockins/${currentUser._id}`, {method : "GET", headers : {'Content-Type' : 'application/json', 'authorization' : authorizationString}})
+            const request = await apiFetch(`${import.meta.env.VITE_API_BASE_URL}/api/view-all-clockins/${currentUser._id}`, {method : "GET", headers : {'Content-Type' : 'application/json', 'authorization' : authorizationString}})
             if(request.ok){
                 const response = await request.json()
                 console.log(response)
@@ -162,7 +163,7 @@ function Dashboard(){
 
         try{
             const authorizationString = `Bearer ${getToken}`
-            const request = await fetch('http://localhost:3000/api/chat', {
+            const request = await apiFetch(`${import.meta.env.VITE_API_BASE_URL}/api/chat`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'authorization': authorizationString },
                 body: JSON.stringify({ message: text })
