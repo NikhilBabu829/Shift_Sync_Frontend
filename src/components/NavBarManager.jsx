@@ -25,7 +25,7 @@ export default function NavBarMaanger(){
     return (
         <AppBar position="static">
             <Container maxWidth="xl" sx={{display : "flex", alignItems : "center", justifyContent : "space-between", padding : {xs : "3%", md : "2%", lg : "1%"}}}>
-                <Typography variant="h5" color="white">Shift-Sync</Typography>
+                <Typography variant="h5" color="white">Shift Sync</Typography>
                 <Tooltip title="Open settings">
                     <IconButton sx={{ p: 0 }} onClick={handleUserOptions}>
                         <Avatar alt="Remy Sharp"/>
