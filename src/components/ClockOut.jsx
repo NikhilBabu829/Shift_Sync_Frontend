@@ -81,6 +81,26 @@ export default function ClockOut() {
         })
     }
 
+    async function collectGPSPolls(count = 3, intervalMs = 1500) {
+        const polls = []
+        for (let i = 0; i < count; i++) {
+            const pos = await getPosition()
+            polls.push({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy, timestamp: Date.now() })
+            if (i < count - 1) await new Promise(r => setTimeout(r, intervalMs))
+        }
+        return polls
+    }
+
+    function haversineDistance(lat1, lon1, lat2, lon2) {
+        const R = 6371e3;
+        const p1 = lat1 * Math.PI/180;
+        const p2 = lat2 * Math.PI/180;
+        const dp = (lat2-lat1) * Math.PI/180;
+        const dl = (lon2-lon1) * Math.PI/180;
+        const a = Math.sin(dp/2) * Math.sin(dp/2) + Math.cos(p1) * Math.cos(p2) * Math.sin(dl/2) * Math.sin(dl/2);
+        return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
+    }
+
     async function handleClockOut(e) {
         e.preventDefault()
         if (!orgCoords?.lat || !orgCoords?.lng) {
@@ -91,16 +111,53 @@ export default function ClockOut() {
         setLoading(true)
         showSnack('Verifying your location…', 'info')
 
-        let pos
-        try {
-            pos = await getPosition()
-        } catch {
+        if (!navigator.geolocation) {
             setLoading(false)
-            showSnack('Could not get your location. Please enable GPS and try again.', 'error')
+            showSnack('Geolocation is not supported by your browser.', 'error')
             return
         }
 
-        const { latitude, longitude, accuracy } = pos.coords
+        let polls
+        try {
+            polls = await collectGPSPolls(3, 1500)
+        } catch (err) {
+            setLoading(false)
+            const code = err?.code
+            if (code === 1) {
+                showSnack('Location permission denied. Please allow location access in your browser settings and try again.', 'error')
+            } else if (code === 2) {
+                showSnack('Location unavailable. Make sure GPS is enabled and you have a signal.', 'error')
+            } else if (code === 3) {
+                showSnack('Location request timed out. Move to an area with better GPS signal and try again.', 'error')
+            } else {
+                showSnack('Could not get your location. Please enable GPS and try again.', 'error')
+            }
+            return
+        }
+
+        // Spoof Detection Logic
+        const isIdentical = polls.length === 3 && polls.every(p => p.lat === polls[0].lat && p.lng === polls[0].lng);
+        if (isIdentical) {
+            setLoading(false)
+            showSnack('Spoofed location detected (static mock). Please disable VPN or mock location tools.', 'error')
+            return
+        }
+
+        if (polls.length === 3) {
+            const distMeters = haversineDistance(polls[0].lat, polls[0].lng, polls[2].lat, polls[2].lng);
+            const timeSecs = (polls[2].timestamp - polls[0].timestamp) / 1000;
+            if (timeSecs > 0) {
+                const speedKmph = (distMeters / timeSecs) * 3.6;
+                if (speedKmph > 100 && distMeters > 50) {
+                    setLoading(false)
+                    showSnack('Spoofed location detected (impossible speed). Please disable VPN or mock location tools.', 'error')
+                    return
+                }
+            }
+        }
+
+        const primary = polls[0]
+        const { lat: latitude, lng: longitude, accuracy } = primary
 
         if (accuracy > 35) {
             setLoading(false)

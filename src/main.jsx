@@ -14,6 +14,7 @@ import ManagerInvite from './pages/ManagerInvite'
 import ClockIn from './components/ClockIn'
 import ClockOut from './components/ClockOut'
 import Register from './pages/Register'
+import ManagerRoster from './pages/ManagerRoster'
 
 const theme = createTheme({
   palette: {
@@ -56,6 +57,10 @@ const router = createBrowserRouter([
   {
     path: "/invite-staff",
     element: <ManagerInvite />
+  },
+  {
+    path: "/manager-roster",
+    element: <ManagerRoster />
   },
   {
     path: "/register",
