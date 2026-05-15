@@ -1,3 +1,4 @@
+import Skeleton from "@mui/material/Skeleton";
 import apiFetch from '../utils/apiFetch.js';
 import { useNavigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
@@ -217,9 +218,10 @@ export default function ClockIn() {
 
     if (!pageReady) {
         return (
-            <Box sx={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: '#f0f4f8' }}>
-                <CircularProgress />
-            </Box>
+                  <Box sx={{ width: '100%', p: 4 }}>
+        <Skeleton variant="rectangular" width="100%" height={200} sx={{ mb: 2, borderRadius: 2 }} />
+        <Skeleton variant="rectangular" width="100%" height={400} sx={{ borderRadius: 2 }} />
+      </Box>
         )
     }
 

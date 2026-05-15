@@ -68,7 +68,7 @@ export default function ManagerRoster() {
         <Box sx={{ minHeight: "100vh", bgcolor: "#f0f4f8", py: 4 }}>
             <Container maxWidth="lg">
                 <Box sx={{ display: "flex", alignItems: "center", mb: 4 }}>
-                    <IconButton onClick={() => navigate("/dashboard")} sx={{ mr: 2 }}>
+                    <IconButton onClick={() => navigate("/manager-dashboard")} sx={{ mr: 2 }}>
                         <ArrowBackIcon />
                     </IconButton>
                     <Typography variant="h4" fontWeight={800} color={BLUE}>Weekly Roster Management</Typography>

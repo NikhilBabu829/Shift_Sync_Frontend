@@ -1,3 +1,4 @@
+import Skeleton from "@mui/material/Skeleton";
 import apiFetch from '../utils/apiFetch.js';
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -6,7 +7,10 @@ import {
   LinearProgress, TextField, InputAdornment, IconButton, Paper,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Snackbar, Alert
 } from "@mui/material";
+import { io } from "socket.io-client";
 import DashboardIcon from "@mui/icons-material/Dashboard";
+import MenuIcon from "@mui/icons-material/Menu";
+import { Drawer } from "@mui/material";
 import PeopleIcon from "@mui/icons-material/People";
 import AccessTimeIcon from "@mui/icons-material/AccessTime";
 import PersonIcon from "@mui/icons-material/Person";
@@ -59,6 +63,7 @@ export default function ManagerDashboard() {
   const [loading, setLoading]               = useState(true);
   const [activeNav, setActiveNav]           = useState("Overview");
   const [alertVisible, setAlertVisible]     = useState(true);
+  const [mobileOpen, setMobileOpen] = useState(false);
   const [pendingSwaps, setPendingSwaps]     = useState([
     { id: 1, requester: "Elena Rodriguez", requestedWith: "Marcus Chen", date: "Saturday AM", shift: "08:00 - 16:00" },
     { id: 2, requester: "David Wilson", requestedWith: "Sarah Jenkins", date: "Sunday PM", shift: "16:00 - 00:30" },
@@ -88,6 +93,15 @@ export default function ManagerDashboard() {
   useEffect(() => {
     if (!managerToken || managerToken.length === 0) { navigate("/manager-login"); return; }
     checkManagerAuth();
+
+    const socket = io(import.meta.env.VITE_API_BASE_URL);
+    socket.on("new_clock_in", (data) => {
+      setSnack({ open: true, msg: `New clock-in: ${data?.name || 'Staff Member'}`, severity: "info" });
+    });
+
+    return () => {
+      socket.disconnect();
+    };
   }, []);
 
   function handleLogout() {
@@ -114,8 +128,9 @@ export default function ManagerDashboard() {
 
   if (loading) {
     return (
-      <Box sx={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", bgcolor: "#f0f4f8" }}>
-        <CircularProgress />
+            <Box sx={{ width: '100%', p: 4 }}>
+        <Skeleton variant="rectangular" width="100%" height={200} sx={{ mb: 2, borderRadius: 2 }} />
+        <Skeleton variant="rectangular" width="100%" height={400} sx={{ borderRadius: 2 }} />
       </Box>
     );
   }
@@ -123,15 +138,9 @@ export default function ManagerDashboard() {
   const orgName        = currentManager?.org_name   || "Your Organisation";
   const managerInitial = (currentManager?.first_name || "M")[0].toUpperCase();
 
-  return (
-    <Box sx={{ display: "flex", minHeight: "100vh", bgcolor: "#f0f4f8" }}>
-
-      {/* ── LEFT SIDEBAR ── */}
-      <Box sx={{
-        width: 240, flexShrink: 0, bgcolor: "#fff", borderRight: "1px solid #e5e7eb",
-        display: "flex", flexDirection: "column", position: "fixed", height: "100vh", zIndex: 10,
-      }}>
-        {/* Org identity */}
+  const drawerContent = (
+    <Box sx={{ width: 240, display: "flex", flexDirection: "column", height: "100%" }}>
+      {/* Org identity */}
         <Box sx={{ p: 3, borderBottom: "1px solid #e5e7eb" }}>
           <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
             <Avatar sx={{ bgcolor: BLUE, width: 38, height: 38, fontSize: 15, fontWeight: 700 }}>
@@ -186,10 +195,32 @@ export default function ManagerDashboard() {
             Log Out
           </Button>
         </Box>
+
+    </Box>
+  );
+
+  return (
+    <Box sx={{ display: "flex", minHeight: "100vh", bgcolor: "#f0f4f8" }}>
+
+      {/* ── LEFT SIDEBAR ── */}
+      <Box sx={{
+        width: 240, flexShrink: 0, bgcolor: "#fff", borderRight: "1px solid #e5e7eb",
+        display: { xs: "none", md: "flex" }, flexDirection: "column", position: "fixed", height: "100vh", zIndex: 10,
+      }}>
+        {drawerContent}
       </Box>
+      <Drawer
+        variant="temporary"
+        open={mobileOpen}
+        onClose={() => setMobileOpen(false)}
+        ModalProps={{ keepMounted: true }}
+        sx={{ display: { xs: "block", md: "none" } }}
+      >
+        {drawerContent}
+      </Drawer>
 
       {/* ── MAIN AREA ── */}
-      <Box sx={{ ml: "240px", flex: 1, display: "flex", flexDirection: "column" }}>
+      <Box sx={{ ml: { xs: 0, md: "240px" }, flex: 1, display: "flex", flexDirection: "column" }}>
 
         {/* Top bar */}
         <Box sx={{
@@ -197,8 +228,11 @@ export default function ManagerDashboard() {
           px: 4, height: 60, display: "flex", alignItems: "center",
           justifyContent: "space-between", position: "sticky", top: 0, zIndex: 9,
         }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 3 }}>
-            <Typography variant="h6" fontWeight={800} color={BLUE} sx={{ letterSpacing: "-0.3px" }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: { xs: 1, md: 3 } }}>
+            <IconButton sx={{ display: { xs: "block", md: "none" }, ml: -2 }} onClick={() => setMobileOpen(true)}>
+              <MenuIcon />
+            </IconButton>
+            <Typography variant="h6" fontWeight={800} color={BLUE} sx={{ letterSpacing: "-0.3px", display: { xs: "none", sm: "block" } }}>
               Shift Sync
             </Typography>
             <Box sx={{ display: "flex" }}>
@@ -466,7 +500,36 @@ export default function ManagerDashboard() {
                 View Full Roster
               </Button>
             </Box>
-            <TableContainer>
+            <Box sx={{ display: { xs: "block", md: "none" }, p: 2 }}>
+              {SAMPLE_LEDGER.map((row) => (
+                <Paper key={row.name} elevation={0} sx={{ border: "1px solid #e5e7eb", borderRadius: 2, p: 2, mb: 2 }}>
+                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 2 }}>
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                      <Avatar sx={{ width: 34, height: 34, bgcolor: ACCENT, fontSize: 13 }}>{row.name[0]}</Avatar>
+                      <Box>
+                        <Typography variant="body2" fontWeight={600}>{row.name}</Typography>
+                        <Typography variant="caption" color="text.secondary">{row.role} • {row.dept}</Typography>
+                      </Box>
+                    </Box>
+                    <Chip
+                      label={row.status} size="small"
+                      sx={{ bgcolor: row.statusColor + "18", color: row.statusColor, fontWeight: 700, fontSize: 10 }}
+                    />
+                  </Box>
+                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <Typography variant="body2" color="text.secondary">{row.shift}</Typography>
+                    <Button
+                      size="small" variant="outlined"
+                      sx={{ textTransform: "none", fontWeight: 600, borderRadius: 2, borderColor: "#e5e7eb", color: "#374151", fontSize: 12 }}
+                    >
+                      View
+                    </Button>
+                  </Box>
+                </Paper>
+              ))}
+            </Box>
+
+            <TableContainer sx={{ display: { xs: "none", md: "block" } }}>
               <Table>
                 <TableHead>
                   <TableRow sx={{ bgcolor: "#f8fafc" }}>
