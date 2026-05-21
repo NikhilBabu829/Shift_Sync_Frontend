@@ -80,6 +80,8 @@ function Dashboard() {
   const [currentUser, setCurrentUser] = useState(null)
   // Whether the auth check has confirmed the user is logged in
   const [userAuth, setUserAuth]       = useState(false)
+  // Shift time proposals sent by the manager that the staff member can accept or decline
+  const [shiftProposals, setShiftProposals] = useState([])
   // Which sidebar item is highlighted
   const [activeNav, setActiveNav]     = useState('Overview')
   // Controls bottom snackbar visibility
@@ -141,11 +143,44 @@ function Dashboard() {
     }
   }
 
+  // Loads any pending time proposals sent by the manager for this staff member
+  async function fetchShiftProposals() {
+    try {
+      const res = await apiFetch(`${BASE}/api/my-shift-proposals`, {
+        headers: { authorization: `Bearer ${getToken}` }
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setShiftProposals(data.proposals || [])
+      }
+    } catch { /* non-critical — proposals will show on next load */ }
+  }
+
+  // Staff member accepts or declines a manager's proposed shift time
+  async function handleRespondToProposal(id, action) {
+    try {
+      const res = await apiFetch(`${BASE}/api/shift-proposal-respond/${id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', authorization: `Bearer ${getToken}` },
+        body: JSON.stringify({ action })
+      })
+      if (res.ok) {
+        setShiftProposals(prev => prev.filter(p => p._id !== id))
+        setSnackText(action === 'accept' ? 'Shift accepted — your manager will confirm shortly' : 'Proposal declined')
+        setSnackOpen(true)
+      }
+    } catch {
+      setSnackText('Network error — please try again')
+      setSnackOpen(true)
+    }
+  }
+
   // On mount: show any URL message, then validate auth or redirect to login
   useEffect(() => {
     if (msgFromURL) { setSnackText(msgFromURL); setSnackOpen(true) }
     if (getToken) {
       (async () => { const ok = await checkUser(); setUserAuth(ok) })()
+      fetchShiftProposals()
     } else {
       navigate(`/staff-login?${new URLSearchParams({ message: 'You Need to Login' })}`)
     }
@@ -412,6 +447,54 @@ function Dashboard() {
               </Paper>
             ))}
           </Box>
+
+          {/* Shift proposals panel — shown only when the manager has sent proposals to this staff member */}
+          {shiftProposals.length > 0 && (
+            <Paper elevation={0} sx={{ border: '1px solid #93c5fd', borderRadius: 3, p: 3, mb: 3, bgcolor: '#eff6ff' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                <Typography variant="subtitle2" fontWeight={700} color={BLUE}>Proposed Shifts</Typography>
+                <Chip
+                  label={shiftProposals.length}
+                  size="small"
+                  sx={{ bgcolor: ACCENT, color: '#fff', fontWeight: 700, fontSize: 11 }}
+                />
+              </Box>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                {shiftProposals.map(p => (
+                  <Box key={p._id} sx={{ bgcolor: '#fff', border: '1px solid #bfdbfe', borderRadius: 2, p: 2 }}>
+                    <Typography variant="body2" fontWeight={600} color={BLUE}>
+                      {p.requestedDate}
+                      <Box component="span" sx={{ fontWeight: 400, color: 'text.secondary' }}>
+                        {' '}— {p.proposedStartTime} to {p.proposedEndTime}
+                      </Box>
+                    </Typography>
+                    {p.notes && (
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
+                        Your note: {p.notes}
+                      </Typography>
+                    )}
+                    {/* Accept or decline buttons — response is forwarded to the manager for final confirmation */}
+                    <Box sx={{ display: 'flex', gap: 1, mt: 1.5 }}>
+                      <Button
+                        size="small" variant="contained"
+                        sx={{ bgcolor: '#16a34a', '&:hover': { bgcolor: '#15803d' }, textTransform: 'none', fontWeight: 600 }}
+                        onClick={() => handleRespondToProposal(p._id, 'accept')}
+                      >
+                        Accept
+                      </Button>
+                      <Button
+                        size="small" variant="outlined" color="error"
+                        sx={{ textTransform: 'none', fontWeight: 600 }}
+                        onClick={() => handleRespondToProposal(p._id, 'deny')}
+                      >
+                        Decline
+                      </Button>
+                    </Box>
+                  </Box>
+                ))}
+              </Box>
+            </Paper>
+          )}
 
           {/* Profile summary card at the bottom of the main content area */}
           <Paper elevation={0} sx={{ border: '1px solid #e5e7eb', borderRadius: 3, p: 3 }}>

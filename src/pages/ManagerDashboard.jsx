@@ -294,41 +294,61 @@ export default function ManagerDashboard() {
     }
   }
 
-  // Updates the locally stored start/end time for a specific shift request before approval
+  // Updates the locally stored start/end time for a specific shift request (used in the proposal form)
   function setRequestTime(id, field, value) {
     setRequestTimes(prev => ({ ...prev, [id]: { ...prev[id], [field]: value } }));
   }
 
-  // Approves a staff shift request with the assigned times and adds it to the roster
-  async function handleApproveShiftRequest(req) {
+  // Manager sends a time proposal to the staff member rather than directly adding to roster.
+  // The request moves to 'proposed' status; the staff member must accept before the roster is updated.
+  async function handleProposeShiftTime(req) {
     const times = requestTimes[req._id] || {};
     const startTime = times.startTime || req.requestedStartTime || '';
     const endTime   = times.endTime   || req.requestedEndTime   || '';
     if (!startTime || !endTime) {
-      setSnack({ open: true, msg: 'Please enter a start time and end time before approving.', severity: 'warning' });
+      setSnack({ open: true, msg: 'Please enter a start time and end time to propose.', severity: 'warning' });
       return;
     }
     try {
-      const res = await apiFetch(`${BASE}/api/shift-request-resolve/${req._id}`, {
+      const res = await apiFetch(`${BASE}/api/shift-request-propose/${req._id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', authorization: `Bearer ${managerToken}` },
-        body: JSON.stringify({ action: 'approve', startTime, endTime })
+        body: JSON.stringify({ startTime, endTime })
       });
       if (res.ok) {
         setPendingShiftRequests(prev => prev.filter(r => r._id !== req._id));
-        // Clean up the stored times for this request
         setRequestTimes(prev => { const next = { ...prev }; delete next[req._id]; return next; });
-        setSnack({ open: true, msg: 'Shift request approved — shift added to roster', severity: 'success' });
+        setSnack({ open: true, msg: 'Time proposal sent — awaiting staff response', severity: 'success' });
       } else {
         const data = await res.json();
-        setSnack({ open: true, msg: data.message || 'Approval failed', severity: 'error' });
+        setSnack({ open: true, msg: data.message || 'Proposal failed', severity: 'error' });
       }
     } catch {
       setSnack({ open: true, msg: 'Network error — please try again', severity: 'error' });
     }
   }
 
-  // Denies a staff shift request and removes it from the pending list
+  // Manager confirms a staff-agreed proposal, which creates the roster shift and Google Calendar event.
+  async function handleConfirmShiftRequest(id) {
+    try {
+      const res = await apiFetch(`${BASE}/api/shift-request-resolve/${id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', authorization: `Bearer ${managerToken}` },
+        body: JSON.stringify({ action: 'confirm' })
+      });
+      if (res.ok) {
+        setPendingShiftRequests(prev => prev.filter(r => r._id !== id));
+        setSnack({ open: true, msg: 'Shift confirmed — added to roster and Google Calendar', severity: 'success' });
+      } else {
+        const data = await res.json();
+        setSnack({ open: true, msg: data.message || 'Confirmation failed', severity: 'error' });
+      }
+    } catch {
+      setSnack({ open: true, msg: 'Network error — please try again', severity: 'error' });
+    }
+  }
+
+  // Denies a shift request or proposal at any stage and removes it from the list
   async function handleDenyShiftRequest(id) {
     try {
       const res = await apiFetch(`${BASE}/api/shift-request-resolve/${id}`, {
@@ -822,23 +842,44 @@ export default function ManagerDashboard() {
             ) : (
               <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
                 {pendingShiftRequests.map((req) => {
-                  // Use manager-entered times if available, otherwise fall back to staff-requested times
+                  const isAgreed = req.status === 'staff_agreed';
                   const times = requestTimes[req._id] || {};
-                  const effectiveStart = times.startTime ?? req.requestedStartTime ?? '';
-                  const effectiveEnd   = times.endTime   ?? req.requestedEndTime   ?? '';
+                  const proposeStart = times.startTime ?? req.requestedStartTime ?? '';
+                  const proposeEnd   = times.endTime   ?? req.requestedEndTime   ?? '';
+
                   return (
-                    <Box key={req._id} sx={{ p: 2.5, border: "1px solid #e5e7eb", borderRadius: 2, bgcolor: "#f9fafb" }}>
+                    <Box key={req._id} sx={{
+                      p: 2.5, borderRadius: 2, bgcolor: isAgreed ? "#f0fdf4" : "#f9fafb",
+                      border: isAgreed ? "1px solid #86efac" : "1px solid #e5e7eb"
+                    }}>
+                      {/* Header row: staff name, date, status badge, deny button */}
                       <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 1 }}>
                         <Box>
-                          <Typography variant="body2" fontWeight={600} color={BLUE}>
-                            {req.staffMember?.staffName || 'Unknown'}
-                            <Box component="span" sx={{ color: "text.secondary", fontWeight: 400 }}> wants to work on </Box>
-                            {req.requestedDate}
-                          </Typography>
-                          {/* Optional note from the staff member */}
+                          <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+                            <Typography variant="body2" fontWeight={600} color={BLUE}>
+                              {req.staffMember?.staffName || 'Unknown'}
+                              <Box component="span" sx={{ color: "text.secondary", fontWeight: 400 }}> — {req.requestedDate}</Box>
+                            </Typography>
+                            {/* Badge shows which stage this request is at */}
+                            <Chip
+                              label={isAgreed ? 'Staff Agreed' : 'Pending Proposal'}
+                              size="small"
+                              sx={{
+                                bgcolor: isAgreed ? "#dcfce7" : "#fef9c3",
+                                color: isAgreed ? "#15803d" : "#854d0e",
+                                fontWeight: 700, fontSize: 10
+                              }}
+                            />
+                          </Box>
                           {req.notes && (
                             <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.25 }}>
                               Note: {req.notes}
+                            </Typography>
+                          )}
+                          {/* For staff_agreed cards, show the agreed times at a glance */}
+                          {isAgreed && (
+                            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.25 }}>
+                              Agreed times: {req.proposedStartTime} – {req.proposedEndTime}
                             </Typography>
                           )}
                         </Box>
@@ -847,32 +888,46 @@ export default function ManagerDashboard() {
                         </Button>
                       </Box>
 
-                      {/* Time assignment row — manager sets start/end before approving */}
-                      <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mt: 1.5, flexWrap: "wrap" }}>
-                        <TextField
-                          label="Start time" type="time" size="small"
-                          value={effectiveStart}
-                          onChange={e => setRequestTime(req._id, 'startTime', e.target.value)}
-                          InputLabelProps={{ shrink: true }}
-                          inputProps={{ step: 300 }}
-                          sx={{ width: 140 }}
-                        />
-                        <TextField
-                          label="End time" type="time" size="small"
-                          value={effectiveEnd}
-                          onChange={e => setRequestTime(req._id, 'endTime', e.target.value)}
-                          InputLabelProps={{ shrink: true }}
-                          inputProps={{ step: 300 }}
-                          sx={{ width: 140 }}
-                        />
-                        <Button
-                          size="small" variant="contained"
-                          sx={{ bgcolor: "#16a34a", '&:hover': { bgcolor: "#15803d" }, px: 2, whiteSpace: "nowrap" }}
-                          onClick={() => handleApproveShiftRequest(req)}
-                        >
-                          Approve & Add to Roster
-                        </Button>
-                      </Box>
+                      {/* Action row differs by status */}
+                      {isAgreed ? (
+                        // Staff agreed — manager just needs to confirm to finalise the roster
+                        <Box sx={{ mt: 1.5 }}>
+                          <Button
+                            size="small" variant="contained"
+                            sx={{ bgcolor: "#16a34a", '&:hover': { bgcolor: "#15803d" }, px: 2 }}
+                            onClick={() => handleConfirmShiftRequest(req._id)}
+                          >
+                            Confirm & Add to Roster
+                          </Button>
+                        </Box>
+                      ) : (
+                        // Pending — manager proposes a specific time back to the staff member
+                        <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mt: 1.5, flexWrap: "wrap" }}>
+                          <TextField
+                            label="Propose start" type="time" size="small"
+                            value={proposeStart}
+                            onChange={e => setRequestTime(req._id, 'startTime', e.target.value)}
+                            InputLabelProps={{ shrink: true }}
+                            inputProps={{ step: 300 }}
+                            sx={{ width: 150 }}
+                          />
+                          <TextField
+                            label="Propose end" type="time" size="small"
+                            value={proposeEnd}
+                            onChange={e => setRequestTime(req._id, 'endTime', e.target.value)}
+                            InputLabelProps={{ shrink: true }}
+                            inputProps={{ step: 300 }}
+                            sx={{ width: 150 }}
+                          />
+                          <Button
+                            size="small" variant="contained"
+                            sx={{ bgcolor: ACCENT, '&:hover': { bgcolor: "#1d4ed8" }, px: 2, whiteSpace: "nowrap" }}
+                            onClick={() => handleProposeShiftTime(req)}
+                          >
+                            Send Proposal
+                          </Button>
+                        </Box>
+                      )}
                     </Box>
                   );
                 })}
