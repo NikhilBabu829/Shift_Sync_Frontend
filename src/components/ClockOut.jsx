@@ -10,26 +10,40 @@ import LogoutIcon from '@mui/icons-material/Logout'
 import AccessTimeIcon from '@mui/icons-material/AccessTime'
 import LocationOnIcon from '@mui/icons-material/LocationOn'
 
+// Brand colour token
 const BLUE = '#1a3a6b'
+// Available shift time windows the staff member can select when clocking out
 const shiftTypes = ['7:00-15:30', '8:00-16:30', '10:00-18:30', '13:30-22:00', '15:00-23:30', '16:00-00:30']
+// Backend base URL from the environment
 const BASE = import.meta.env.VITE_API_BASE_URL
 
+// GPS-verified clock-out page for staff
 export default function ClockOut() {
     const navigate = useNavigate()
+    // JWT stored after Google OAuth login
     const token = localStorage.getItem('aes52')
 
+    // Authenticated staff profile loaded on mount
     const [currentUser, setCurrentUser] = useState(null)
+    // Organisation HQ lat/lng used for the geo-fence check
     const [orgCoords, setOrgCoords] = useState(null)
+    // Organisation display name shown in the location chip
     const [orgName, setOrgName] = useState('')
+    // The shift type the staff member selects before clocking out
     const [shift, setShift] = useState(shiftTypes[0])
+    // True while the clock-out API call is in flight
     const [loading, setLoading] = useState(false)
+    // False until auth and org config have loaded; prevents flashing an empty page
     const [pageReady, setPageReady] = useState(false)
+    // Controls the bottom snackbar notification
     const [snack, setSnack] = useState({ open: false, msg: '', severity: 'info' })
 
+    // Opens the bottom snackbar with a message and severity level
     function showSnack(msg, severity = 'info') {
         setSnack({ open: true, msg, severity })
     }
 
+    // Validates the stored JWT and loads the staff profile; redirects to login on failure
     async function checkAuth() {
         try {
             const res = await apiFetch(`${BASE}/api/staff-auth`, {
@@ -45,6 +59,7 @@ export default function ClockOut() {
         return false
     }
 
+    // Fetches the organisation's HQ coordinates and name for the geo-fence check
     async function fetchOrgConfig() {
         try {
             const res = await apiFetch(`${BASE}/api/org-config`, {
@@ -62,6 +77,7 @@ export default function ClockOut() {
         }
     }
 
+    // On mount: redirect if no token, then run auth check and org config fetch
     useEffect(() => {
         if (!token) { navigate('/staff-login?message=Please login to continue'); return }
         ;(async () => {
@@ -71,6 +87,7 @@ export default function ClockOut() {
         })()
     }, [])
 
+    // Wraps navigator.geolocation.getCurrentPosition in a Promise for async/await use
     function getPosition() {
         return new Promise((resolve, reject) => {
             navigator.geolocation.getCurrentPosition(resolve, reject, {
@@ -81,6 +98,7 @@ export default function ClockOut() {
         })
     }
 
+    // Collects multiple GPS readings spaced intervalMs apart to detect spoofed static coordinates
     async function collectGPSPolls(count = 3, intervalMs = 1500) {
         const polls = []
         for (let i = 0; i < count; i++) {
@@ -91,6 +109,7 @@ export default function ClockOut() {
         return polls
     }
 
+    // Returns the great-circle distance in metres between two lat/lng points
     function haversineDistance(lat1, lon1, lat2, lon2) {
         const R = 6371e3;
         const p1 = lat1 * Math.PI/180;
@@ -101,6 +120,7 @@ export default function ClockOut() {
         return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
     }
 
+    // Main clock-out handler: collects GPS polls, runs spoof and geo-fence checks, validates a prior clock-in, then posts to backend
     async function handleClockOut(e) {
         e.preventDefault()
         if (!orgCoords?.lat || !orgCoords?.lng) {
@@ -122,6 +142,7 @@ export default function ClockOut() {
             polls = await collectGPSPolls(3, 1500)
         } catch (err) {
             setLoading(false)
+            // Map browser geolocation error codes to user-friendly messages
             const code = err?.code
             if (code === 1) {
                 showSnack('Location permission denied. Please allow location access in your browser settings and try again.', 'error')
@@ -135,7 +156,7 @@ export default function ClockOut() {
             return
         }
 
-        // Spoof Detection Logic
+        // Spoof Detection Logic — identical readings across all polls indicates a static mock
         const isIdentical = polls.length === 3 && polls.every(p => p.lat === polls[0].lat && p.lng === polls[0].lng);
         if (isIdentical) {
             setLoading(false)
@@ -143,6 +164,7 @@ export default function ClockOut() {
             return
         }
 
+        // Speed-based spoof check — movement faster than 100 km/h over 50m is physically impossible at desk-level
         if (polls.length === 3) {
             const distMeters = haversineDistance(polls[0].lat, polls[0].lng, polls[2].lat, polls[2].lng);
             const timeSecs = (polls[2].timestamp - polls[0].timestamp) / 1000;
@@ -159,6 +181,7 @@ export default function ClockOut() {
         const primary = polls[0]
         const { lat: latitude, lng: longitude, accuracy } = primary
 
+        // Reject readings with too-low accuracy (likely indoors or obstructed GPS)
         if (accuracy > 35) {
             setLoading(false)
             showSnack(`Location accuracy too low (${Math.round(accuracy)}m). Move to an open area and try again.`, 'warning')
@@ -176,7 +199,7 @@ export default function ClockOut() {
             return
         }
 
-        // Verify clocked in today
+        // Verify clocked in today before allowing clock-out
         try {
             const clockInsRes = await apiFetch(`${BASE}/api/view-all-clockins/${currentUser._id}`, {
                 headers: { authorization: `Bearer ${token}` }
@@ -189,6 +212,7 @@ export default function ClockOut() {
                 return
             }
 
+            // Only allow clock-out if the most recent clock-in was today
             const lastClockIn = clockIns[clockIns.length - 1]
             const today = new Date()
             const clockInDate = new Date(lastClockIn.dateClockedIn)
@@ -201,7 +225,7 @@ export default function ClockOut() {
                 return
             }
 
-            // Late/early check — diffMs positive = clocked out after shift end = late
+            // Late/early check — positive diffMs = clocking out after shift end = overtime
             const [shiftStart, shiftEnd] = shift.split('-')
             const [endH, endM] = shiftEnd.split(':').map(Number)
             const shiftEndTime = new Date()
@@ -212,6 +236,7 @@ export default function ClockOut() {
             const diffH = Math.floor(absDiff / (1000 * 60 * 60))
             const diffMin = Math.floor((absDiff % (1000 * 60 * 60)) / (1000 * 60))
 
+            // Build the clock-out payload linking back to today's clock-in record
             const data = {
                 startOfShift: shiftStart,
                 endOfShift: shiftEnd,
@@ -228,6 +253,7 @@ export default function ClockOut() {
             })
 
             if (res.ok) {
+                // Show an early/late message then redirect to dashboard
                 const msg = isLate
                     ? `Clocked out — ${diffH}h ${diffMin}m late. See you next time!`
                     : `Clocked out — ${diffH}h ${diffMin}m early. Great work today!`
@@ -244,8 +270,10 @@ export default function ClockOut() {
         }
     }
 
+    // Clears the JWT and navigates to the landing page
     function handleLogout() {
         localStorage.removeItem('aes52')
+        localStorage.removeItem('userRole')
         navigate('/')
     }
 
@@ -261,7 +289,7 @@ export default function ClockOut() {
         <Box sx={{ minHeight: '100vh', bgcolor: '#f0f4f8' }}>
             <AppBar position="sticky" elevation={0} sx={{ bgcolor: BLUE }}>
                 <Toolbar sx={{ justifyContent: 'space-between' }}>
-                    <Typography variant="h6" fontWeight={700} color="#fff">Shift Sync</Typography>
+                    <Typography variant="h6" fontWeight={700} color="#fff" sx={{ cursor: "pointer" }} onClick={() => navigate("/dashboard")}>Shift Sync</Typography>
                     <Typography variant="body1" color="rgba(255,255,255,0.8)">
                         Hi, <Box component="span" fontWeight={700} color="#fff">{currentUser?.staffName}</Box>
                     </Typography>
@@ -279,6 +307,7 @@ export default function ClockOut() {
             <Container maxWidth="sm" sx={{ py: 8 }}>
                 <Box sx={{ bgcolor: '#fff', borderRadius: 4, border: '1px solid #e2e8f0', p: 5, textAlign: 'center', boxShadow: '0 4px 24px rgba(26,58,107,0.07)' }}>
 
+                    {/* Org location chip — green if HQ coordinates are set */}
                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, mb: 3 }}>
                         <LocationOnIcon sx={{ color: BLUE, fontSize: 18 }} />
                         <Typography variant="body2" color="text.secondary">
@@ -297,6 +326,7 @@ export default function ClockOut() {
                     </Typography>
 
                     <form onSubmit={handleClockOut}>
+                        {/* Shift selector — used to compute late/early status against shift end time */}
                         <FormControl fullWidth sx={{ mb: 4 }}>
                             <FormLabel sx={{ textAlign: 'left', fontWeight: 600, color: BLUE, mb: 1 }}>Shift</FormLabel>
                             <Select value={shift} onChange={(e) => setShift(e.target.value)} size="small">
@@ -304,6 +334,7 @@ export default function ClockOut() {
                             </Select>
                         </FormControl>
 
+                        {/* Submit button disabled while loading or when org HQ is not configured */}
                         <Button
                             type="submit"
                             variant="contained"
@@ -326,6 +357,7 @@ export default function ClockOut() {
                 </Box>
             </Container>
 
+            {/* Bottom snackbar for GPS errors and clock-out outcome */}
             <Snackbar
                 open={snack.open}
                 autoHideDuration={4000}

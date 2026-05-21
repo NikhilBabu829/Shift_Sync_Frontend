@@ -10,10 +10,12 @@ import {
 } from '@mui/icons-material'
 import { useNavigate } from 'react-router-dom'
 
+// Brand colour tokens used throughout the landing page
 const NAV_BG = '#0f2a5c'
 const BLUE = '#1a3a6b'
 const ACCENT = '#2563eb'
 
+// Feature cards shown in the "Everything you need" section of the landing page
 const features = [
   {
     icon: <AccessTime sx={{ fontSize: 32, color: ACCENT }} />,
@@ -47,6 +49,7 @@ const features = [
   }
 ]
 
+// Dummy attendance rows shown in the hero dashboard preview and the Operational Ledger section
 const sampleLedger = [
   { name: 'Marcus Chen', role: 'Inventory Lead', shift: '08:00 – 16:00', status: 'ON TIME', statusColor: '#16a34a' },
   { name: 'Sarah Jenkins', role: 'Operations Analyst', shift: '07:30 – 19:45', status: 'OVERTIME', statusColor: '#dc2626' },
@@ -54,8 +57,10 @@ const sampleLedger = [
   { name: 'Elena Rodriguez', role: 'Senior Associate', shift: '09:00 – 17:00', status: 'ON TIME', statusColor: '#16a34a' },
 ]
 
+// Public landing page — marketing, feature showcase, sample ledger, and CTA
 export default function App() {
   const navigate = useNavigate()
+  // Controls whether the sample ledger table is visible (always true; reserved for future toggle)
   const [ledgerVisible] = useState(true)
 
   return (
@@ -64,7 +69,18 @@ export default function App() {
       {/* ── NAV ── */}
       <AppBar position="sticky" elevation={0} sx={{ bgcolor: NAV_BG }}>
         <Toolbar sx={{ justifyContent: 'space-between', px: { xs: 2, md: 6 } }}>
-          <Typography variant="h6" fontWeight={700} color="#fff" letterSpacing={0.5}>
+          <Typography
+            variant="h6" fontWeight={700} color="#fff" letterSpacing={0.5}
+            sx={{ cursor: "pointer" }}
+            onClick={() => {
+              const token = localStorage.getItem("aes52");
+              const role  = localStorage.getItem("userRole");
+              if (!token) { navigate("/"); return; }
+              if (role === "manager") navigate("/manager-dashboard");
+              else if (role === "staff") navigate("/dashboard");
+              else navigate("/");
+            }}
+          >
             Shift Sync
           </Typography>
           <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
@@ -139,6 +155,7 @@ export default function App() {
                   <Chip label="LIVE" size="small" sx={{ bgcolor: '#16a34a', color: '#fff', fontWeight: 700, fontSize: 10 }} />
                 </Box>
                 <Grid container spacing={2} sx={{ mb: 2 }}>
+                  {/* Summary stat tiles in the hero preview */}
                   {[['42', 'On Shift'], ['1,284', 'Hrs This Week'], ['98%', 'On-Time Rate']].map(([val, label]) => (
                     <Grid item xs={4} key={label}>
                       <Box sx={{ bgcolor: 'rgba(255,255,255,0.08)', borderRadius: 2, p: 1.5, textAlign: 'center' }}>
@@ -148,6 +165,7 @@ export default function App() {
                     </Grid>
                   ))}
                 </Grid>
+                {/* Show only the first 3 sample rows inside the hero card */}
                 {sampleLedger.slice(0, 3).map((row) => (
                   <Box key={row.name} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', py: 1, borderTop: '1px solid rgba(255,255,255,0.07)' }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
@@ -180,6 +198,7 @@ export default function App() {
               Bespoke tools designed to eliminate administrative friction and restore focus to your core mission.
             </Typography>
           </Box>
+          {/* Render one card per feature definition */}
           <Grid container spacing={3}>
             {features.map((f) => (
               <Grid item xs={12} sm={6} md={4} key={f.title}>
@@ -208,6 +227,7 @@ export default function App() {
               Export CSV
             </Button>
           </Box>
+          {/* Render the sample ledger table when visible */}
           {ledgerVisible && (
             <TableContainer component={Paper} elevation={0} sx={{ border: '1px solid #e2e8f0', borderRadius: 3 }}>
               <Table>
@@ -269,6 +289,7 @@ export default function App() {
               Manager Login
             </Button>
           </Box>
+          {/* Trust badges below the CTA buttons */}
           <Box sx={{ display: 'flex', justifyContent: 'center', gap: 5, mt: 6, flexWrap: 'wrap' }}>
             {[
               [<CheckCircle sx={{ fontSize: 16 }} />, 'GPS-Verified Attendance'],
@@ -292,6 +313,7 @@ export default function App() {
               <Typography variant="body1" fontWeight={700} color="#fff">Shift Sync</Typography>
               <Typography variant="caption" color="rgba(255,255,255,0.35)">© 2024 Shift Sync. Architectural precision for your workforce.</Typography>
             </Box>
+            {/* Footer links — currently decorative */}
             <Box sx={{ display: 'flex', gap: 3 }}>
               {['Privacy Policy', 'Terms of Service', 'Contact Support'].map(link => (
                 <Typography key={link} variant="caption" sx={{ color: 'rgba(255,255,255,0.45)', cursor: 'pointer', '&:hover': { color: '#fff' } }}>

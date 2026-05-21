@@ -13,9 +13,11 @@ import ManagerDashboard from './pages/ManagerDashboard'
 import ManagerInvite from './pages/ManagerInvite'
 import ClockIn from './components/ClockIn'
 import ClockOut from './components/ClockOut'
+import FaceEnroll from './pages/FaceEnroll'
 import Register from './pages/Register'
 import ManagerRoster from './pages/ManagerRoster'
 
+// Global MUI theme — defines brand colours, background palette and font stack
 const theme = createTheme({
   palette: {
     mode: "light",
@@ -29,6 +31,7 @@ const theme = createTheme({
   }
 })
 
+// All client-side routes mapped to their page components
 const router = createBrowserRouter([
   {
     path: "/",
@@ -73,9 +76,14 @@ const router = createBrowserRouter([
   {
     path: "/staff-clock-out",
     element: <ClockOut />
+  },
+  {
+    path: "/face-enroll",
+    element: <FaceEnroll />
   }
 ])
 
+// Mount the app — wraps everything in the theme, CSS baseline reset, global context, and router
 ReactDOM.createRoot(document.getElementById('root')).render(
   <ThemeProvider theme={theme}>
     <CssBaseline />
@@ -84,4 +92,3 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     </ContextProvider>
   </ThemeProvider>
 )
-

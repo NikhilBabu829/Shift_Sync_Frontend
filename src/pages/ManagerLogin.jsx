@@ -15,28 +15,48 @@ import * as EmailValidator from "email-validator";
 import { useNavigate, useSearchParams, Link as RouterLink } from "react-router-dom";
 import { AppContext } from "../ContextProvider";
 
+// Email/password login page for managers
 export default function ManagerLogin() {
+  // Controlled email field value
   const [email, setEmail] = useState("");
+  // Controlled password field value
   const [pass, setPass] = useState("");
+  // Whether the password field is in plain-text or masked mode
   const [showPass, setShowPass] = useState(false);
   const { setCurrentManager } = useContext(AppContext);
+  // Controls snackbar visibility
   const [displaySnackBar, setSnackBar] = useState(false);
+  // Text content of the snackbar notification
   const [snackBarText, setSnackBarText] = useState("");
   const navigate = useNavigate();
+  // Used to read ?msg= or ?message= query parameters passed from other pages
   const [params] = useSearchParams();
 
+  // Hides the snackbar
   function handleSnackBarClose() {
     setSnackBar(false);
   }
 
+  // On mount: show any redirect message and auto-redirect if a valid token already exists
   useEffect(() => {
-    const msg = params.get("msg");
+    const msg = params.get("msg") || params.get("message");
     if (msg !== null) {
       setSnackBar(true);
       setSnackBarText(msg);
     }
+    const existingToken = localStorage.getItem("aes52");
+    if (existingToken && existingToken.length > 0) {
+      // Silently validate the stored token and skip login if still active
+      apiFetch(`${import.meta.env.VITE_API_BASE_URL}/api/manager-auth`, {
+        method: "GET",
+        headers: { "Content-Type": "application/json", authorization: `Bearer ${existingToken}` },
+      }).then((res) => {
+        if (res.ok) { localStorage.setItem("userRole", "manager"); navigate("/manager-dashboard"); }
+      }).catch(() => {});
+    }
   }, []);
 
+  // Validates email format then submits credentials to the backend login endpoint
   async function handleFormSubmit(e) {
     e.preventDefault();
     if (!EmailValidator.validate(email)) {
@@ -52,8 +72,10 @@ export default function ManagerLogin() {
       });
       const data = await request.json();
       if (request.ok) {
+        // Store the JWT and manager profile in context before navigating
         setCurrentManager(data.manager);
         localStorage.setItem("aes52", data.token);
+        localStorage.setItem("userRole", "manager");
         navigate("/manager-dashboard");
       } else {
         setSnackBar(true);
@@ -70,7 +92,7 @@ export default function ManagerLogin() {
       {/* Top Navbar */}
       <AppBar position="static" elevation={0} sx={{ bgcolor: "#ffffff", borderBottom: "1px solid #e5e7eb" }}>
         <Toolbar sx={{ justifyContent: "space-between" }}>
-          <Typography variant="h6" sx={{ fontWeight: 700, color: "#111827", letterSpacing: "-0.5px" }}>
+          <Typography variant="h6" sx={{ fontWeight: 700, color: "#111827", letterSpacing: "-0.5px", cursor: "pointer" }} onClick={() => navigate("/")}>
             Shift Sync
           </Typography>
           <IconButton sx={{ color: "#6b7280" }}>
@@ -90,7 +112,7 @@ export default function ManagerLogin() {
           gap: { md: 8 },
         }}
       >
-        {/* Left Side — Marketing */}
+        {/* Left Side — Marketing copy, hidden on mobile */}
         <Box sx={{ flex: 1, display: { xs: "none", md: "block" } }}>
           <Typography variant="h2" sx={{ fontWeight: 800, lineHeight: 1.15, color: "#111827", mb: 2 }}>
             Precision in{" "}
@@ -102,6 +124,7 @@ export default function ManagerLogin() {
           <Typography variant="body1" sx={{ color: "#6b7280", mb: 4, maxWidth: 420, lineHeight: 1.7 }}>
             Access your administrative dashboard to coordinate schedules, manage rosters, and oversee operational efficiency with architectural clarity.
           </Typography>
+          {/* Decorative trust icon row */}
           <Box sx={{ display: "flex", gap: 1.5 }}>
             <Avatar sx={{ bgcolor: "#1a3a6b", width: 48, height: 48 }}>
               <SecurityIcon fontSize="small" />
@@ -172,6 +195,7 @@ export default function ManagerLogin() {
                 fullWidth
                 id="password"
                 name="password"
+                // Toggle between masked and plain text based on showPass
                 type={showPass ? "text" : "password"}
                 value={pass}
                 onChange={(e) => setPass(e.target.value)}
@@ -184,6 +208,7 @@ export default function ManagerLogin() {
                     ),
                     endAdornment: (
                       <InputAdornment position="end">
+                        {/* Toggles password visibility */}
                         <IconButton
                           onClick={() => setShowPass(!showPass)}
                           edge="end"
@@ -219,6 +244,7 @@ export default function ManagerLogin() {
               </Button>
             </form>
 
+            {/* Link to registration for new organisations */}
             <Typography variant="body2" sx={{ textAlign: "center", color: "#6b7280" }}>
               New to the platform?{" "}
               <Link
@@ -232,7 +258,7 @@ export default function ManagerLogin() {
             </Typography>
           </Paper>
 
-          {/* Carousel dots */}
+          {/* Carousel dots — decorative */}
           <Box sx={{ display: "flex", justifyContent: "center", gap: 1, mt: 3 }}>
             <Box sx={{ width: 10, height: 10, borderRadius: "50%", bgcolor: "#9ca3af" }} />
             <Box sx={{ width: 10, height: 10, borderRadius: "50%", bgcolor: "#d1d5db" }} />
@@ -271,6 +297,7 @@ export default function ManagerLogin() {
         </Box>
       </Box>
 
+      {/* Snackbar for login errors and redirect messages */}
       <Snackbar
         anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
         open={displaySnackBar}
