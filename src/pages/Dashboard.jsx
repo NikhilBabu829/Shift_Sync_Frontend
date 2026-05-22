@@ -1,9 +1,12 @@
 import apiFetch from '../utils/apiFetch.js'
+import { getSocket, disconnectSocket } from '../utils/socketClient.js'
+import { registerPushNotifications } from '../utils/pushNotifications.js'
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Box, Button, Typography, CircularProgress, Avatar, Paper,
   TextField, IconButton, Snackbar, InputAdornment, Chip,
+  Badge, Popover, Divider,
 } from '@mui/material'
 
 import DashboardIcon        from '@mui/icons-material/Dashboard'
@@ -11,6 +14,7 @@ import AccessTimeIcon       from '@mui/icons-material/AccessTime'
 import ExitToAppIcon        from '@mui/icons-material/ExitToApp'
 import SwapHorizIcon        from '@mui/icons-material/SwapHoriz'
 import FaceIcon             from '@mui/icons-material/Face'
+import CalendarMonthIcon    from '@mui/icons-material/CalendarMonth'
 import LogoutIcon           from '@mui/icons-material/Logout'
 import SmartToyIcon         from '@mui/icons-material/SmartToy'
 import SendIcon             from '@mui/icons-material/Send'
@@ -20,6 +24,18 @@ import HelpOutlineIcon      from '@mui/icons-material/HelpOutline'
 import SearchIcon           from '@mui/icons-material/Search'
 import WarningAmberIcon     from '@mui/icons-material/WarningAmber'
 import ArrowForwardIcon     from '@mui/icons-material/ArrowForward'
+import StorefrontIcon       from '@mui/icons-material/Storefront'
+import EventNoteIcon        from '@mui/icons-material/EventNote'
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline'
+import CancelOutlinedIcon   from '@mui/icons-material/CancelOutlined'
+
+function timeAgo(date) {
+  const diff = Math.floor((Date.now() - new Date(date)) / 1000)
+  if (diff < 60)    return 'just now'
+  if (diff < 3600)  return `${Math.floor(diff / 60)}m ago`
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`
+  return `${Math.floor(diff / 86400)}d ago`
+}
 
 // Brand colour tokens
 const BLUE   = '#1a3a6b'
@@ -28,11 +44,13 @@ const BASE   = import.meta.env.VITE_API_BASE_URL
 
 // Sidebar navigation items with icons and display labels
 const NAV_ITEMS = [
-  { icon: <DashboardIcon  fontSize="small" />, label: 'Overview'   },
-  { icon: <AccessTimeIcon fontSize="small" />, label: 'Clock In'   },
-  { icon: <ExitToAppIcon  fontSize="small" />, label: 'Clock Out'  },
-  { icon: <SwapHorizIcon  fontSize="small" />, label: 'Shift Swap' },
-  { icon: <FaceIcon       fontSize="small" />, label: 'Face Enrol' },
+  { icon: <DashboardIcon      fontSize="small" />, label: 'Overview'    },
+  { icon: <CalendarMonthIcon  fontSize="small" />, label: 'My Schedule' },
+  { icon: <AccessTimeIcon     fontSize="small" />, label: 'Clock In'    },
+  { icon: <ExitToAppIcon      fontSize="small" />, label: 'Clock Out'   },
+  { icon: <SwapHorizIcon      fontSize="small" />, label: 'Shift Swap'  },
+  { icon: <StorefrontIcon     fontSize="small" />, label: 'Marketplace' },
+  { icon: <FaceIcon           fontSize="small" />, label: 'Face Enrol'  },
 ]
 
 // Quick-action cards rendered in the main content area
@@ -89,6 +107,16 @@ function Dashboard() {
   // Message shown in the bottom snackbar
   const [snackText, setSnackText]     = useState('')
 
+  // Notification bell — list of in-session notifications and popover anchor
+  const [notifications, setNotifications]     = useState([])
+  const [notifAnchor, setNotifAnchor]         = useState(null)
+
+  // Marketplace — open-cover shifts available for claiming
+  const [openShifts, setOpenShifts]           = useState([])
+  const [marketplaceLoading, setMarketplaceLoading] = useState(false)
+  // Tracks which shift card is mid-claim to show per-card loading
+  const [claimingId, setClaimingId]           = useState(null)
+
   // Whether the floating AI chat panel is open
   const [chatOpen, setChatOpen]       = useState(false)
   // Message thread for the AI shift assistant chat
@@ -107,20 +135,23 @@ function Dashboard() {
   // JWT stored after staff OAuth login
   const getToken  = localStorage.getItem('aes52')
 
-  // Clears the stored token and sends the user back to login
+  // Clears the stored token, disconnects the socket, and sends the user back to login
   function handleLogout() {
     localStorage.removeItem('aes52')
     localStorage.removeItem('userRole')
+    disconnectSocket()
     navigate('/staff-login')
   }
 
   // Routes to the correct page when a sidebar nav item is clicked
   function handleNavClick(label) {
     setActiveNav(label)
-    if (label === 'Clock In')   navigate('/staff-clock-in')
-    if (label === 'Clock Out')  navigate('/staff-clock-out')
-    if (label === 'Shift Swap') navigate('/staff-swap')
-    if (label === 'Face Enrol') navigate('/face-enroll')
+    if (label === 'My Schedule')  navigate('/my-roster')
+    if (label === 'Clock In')     navigate('/staff-clock-in')
+    if (label === 'Clock Out')    navigate('/staff-clock-out')
+    if (label === 'Shift Swap')   navigate('/staff-swap')
+    if (label === 'Face Enrol')   navigate('/face-enroll')
+    if (label === 'Marketplace')  fetchOpenShifts()
   }
 
   // Verifies the stored JWT against the backend and loads the user profile
@@ -175,11 +206,59 @@ function Dashboard() {
     }
   }
 
+  function addNotification(notif) {
+    setNotifications(prev => [{ id: `${Date.now()}-${Math.random()}`, read: false, timestamp: new Date(), ...notif }, ...prev])
+  }
+
+  function dismissNotification(id) {
+    setNotifications(prev => prev.filter(n => n.id !== id))
+  }
+
+  async function fetchOpenShifts() {
+    setMarketplaceLoading(true)
+    try {
+      const res = await apiFetch(`${BASE}/api/open-shifts`, {
+        headers: { authorization: `Bearer ${getToken}` }
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setOpenShifts(data.shifts || [])
+      }
+    } catch { /* will retry on next nav */ }
+    finally { setMarketplaceLoading(false) }
+  }
+
+  async function claimShift(shiftId) {
+    setClaimingId(shiftId)
+    try {
+      const res = await apiFetch(`${BASE}/api/claim-shift/${shiftId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', authorization: `Bearer ${getToken}` }
+      })
+      const data = await res.json()
+      if (res.ok) {
+        setOpenShifts(prev => prev.filter(s => s._id !== shiftId))
+        setSnackText('Shift claimed! Check My Schedule for details.')
+      } else {
+        setSnackText(data.message || 'Could not claim shift — please try again.')
+      }
+    } catch {
+      setSnackText('Network error — please try again.')
+    } finally {
+      setClaimingId(null)
+      setSnackOpen(true)
+    }
+  }
+
   // On mount: show any URL message, then validate auth or redirect to login
   useEffect(() => {
     if (msgFromURL) { setSnackText(msgFromURL); setSnackOpen(true) }
     if (getToken) {
-      (async () => { const ok = await checkUser(); setUserAuth(ok) })()
+      (async () => {
+        const ok = await checkUser()
+        setUserAuth(ok)
+        if (ok) registerPushNotifications(getToken, 'staff')
+      })()
       fetchShiftProposals()
     } else {
       navigate(`/staff-login?${new URLSearchParams({ message: 'You Need to Login' })}`)
@@ -190,6 +269,90 @@ function Dashboard() {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [chatMessages])
+
+  // Real-time socket listeners — connect once the user ID is known
+  useEffect(() => {
+    if (!currentUser?._id) return
+    const socket = getSocket()
+    socket.connect()
+    socket.emit('join_room', { userId: currentUser._id, role: 'staff' })
+
+    socket.on('shift_proposal_received', (proposal) => {
+      setShiftProposals(prev => {
+        const exists = prev.some(p => p._id === proposal._id)
+        return exists ? prev : [...prev, proposal]
+      })
+      addNotification({
+        type: 'shift_proposal_received',
+        title: 'Shift Proposal',
+        body: `Your manager proposed a shift on ${proposal.requestedDate} (${proposal.proposedStartTime} – ${proposal.proposedEndTime})`,
+        actionData: { proposalId: proposal._id, requestedDate: proposal.requestedDate, proposedStartTime: proposal.proposedStartTime, proposedEndTime: proposal.proposedEndTime, notes: proposal.notes }
+      })
+    })
+
+    socket.on('shift_request_resolved', ({ status, requestedDate }) => {
+      addNotification({
+        type: status === 'approved' ? 'shift_approved' : 'shift_denied',
+        title: status === 'approved' ? 'Shift Request Approved' : 'Shift Request Denied',
+        body: status === 'approved'
+          ? `Your shift request for ${requestedDate} was approved and added to the roster.`
+          : `Your shift request for ${requestedDate} was denied by your manager.`,
+        actionData: null
+      })
+    })
+
+    // Another staff member claimed a Marketplace shift — remove its card in real time
+    socket.on('marketplace_shift_taken', ({ shiftId }) => {
+      setOpenShifts(prev => prev.filter(s => s._id !== shiftId))
+    })
+
+    socket.on('cover_approved', ({ date, message }) => {
+      addNotification({
+        type: 'cover_approved',
+        title: 'Cover Request Approved',
+        body: message || `Your cover request for ${date} was approved — it's now live in the Marketplace.`,
+        actionData: null
+      })
+    })
+
+    socket.on('cover_rejected', ({ date, message }) => {
+      addNotification({
+        type: 'cover_rejected',
+        title: 'Cover Request Rejected',
+        body: message || `Your cover request for ${date} was not approved. You are still assigned to this shift.`,
+        actionData: null
+      })
+    })
+
+    socket.on('swap_approved', ({ withName, date, swapDate }) => {
+      addNotification({
+        type: 'swap_approved',
+        title: 'Shift Swap Approved',
+        body: `Your shift swap with ${withName} has been approved by your manager. You are now working on ${swapDate || date}.`,
+        actionData: null
+      })
+    })
+
+    // Staff A has proposed a swap — notify staff B in real time as well as by email
+    socket.on('swap_request_received', ({ requesterName, date, shift_start_time, shift_end_time, swapDate, swap_shift_start_time, swap_shift_end_time }) => {
+      addNotification({
+        type: 'swap_request_received',
+        title: 'Shift Swap Request',
+        body: `${requesterName} wants to swap shifts — their shift on ${date} (${shift_start_time}–${shift_end_time}) for your shift on ${swapDate} (${swap_shift_start_time}–${swap_shift_end_time}). Check your email to accept.`,
+        actionData: null
+      })
+    })
+
+    return () => {
+      socket.off('shift_proposal_received')
+      socket.off('shift_request_resolved')
+      socket.off('marketplace_shift_taken')
+      socket.off('cover_approved')
+      socket.off('cover_rejected')
+      socket.off('swap_approved')
+      socket.off('swap_request_received')
+    }
+  }, [currentUser?._id])
 
   // Sends the user's message to the AI chat endpoint and appends the response
   async function sendChatMessage() {
@@ -323,19 +486,22 @@ function Dashboard() {
             <Typography variant="h6" fontWeight={800} color={BLUE} sx={{ letterSpacing: '-0.3px', cursor: "pointer" }} onClick={() => { setActiveNav('Overview') }}>
               Shift Sync
             </Typography>
-            {/* Top-level tabs — only "Dashboard" is currently active/functional */}
+            {/* Top-level tabs */}
             <Box sx={{ display: 'flex' }}>
-              {['Dashboard', 'My Shifts', 'History'].map((tab) => {
-                const active = tab === 'Dashboard'
+              {[
+                { label: 'Dashboard', action: null },
+                { label: 'My Shifts', action: () => navigate('/my-roster') },
+              ].map(({ label, action }) => {
+                const active = label === 'Dashboard'
                 return (
-                  <Box key={tab} sx={{
-                    px: 2, py: 1.9, cursor: 'pointer', fontSize: '0.875rem',
+                  <Box key={label} onClick={action || undefined} sx={{
+                    px: 2, py: 1.9, cursor: action ? 'pointer' : 'default', fontSize: '0.875rem',
                     fontWeight: active ? 700 : 500,
                     color: active ? ACCENT : '#6b7280',
                     borderBottom: active ? `2px solid ${ACCENT}` : '2px solid transparent',
                     '&:hover': { color: BLUE }, transition: 'all 0.15s',
                   }}>
-                    {tab}
+                    {label}
                   </Box>
                 )
               })}
@@ -357,7 +523,130 @@ function Dashboard() {
               }}
               sx={{ width: 200 }}
             />
-            <IconButton size="small" sx={{ color: '#6b7280' }}><NotificationsIcon /></IconButton>
+            <IconButton
+              size="small"
+              sx={{ color: notifAnchor ? ACCENT : '#6b7280' }}
+              onClick={e => {
+                setNotifAnchor(e.currentTarget)
+                // Mark all as read when panel opens
+                setNotifications(prev => prev.map(n => ({ ...n, read: true })))
+              }}
+            >
+              <Badge
+                badgeContent={notifications.filter(n => !n.read).length}
+                color="error"
+                max={99}
+                sx={{ '& .MuiBadge-badge': { fontSize: 10, height: 16, minWidth: 16 } }}
+              >
+                <NotificationsIcon fontSize="small" />
+              </Badge>
+            </IconButton>
+
+            {/* ── NOTIFICATION POPOVER ── */}
+            <Popover
+              open={Boolean(notifAnchor)}
+              anchorEl={notifAnchor}
+              onClose={() => setNotifAnchor(null)}
+              anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+              transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+              PaperProps={{ sx: { width: 380, maxHeight: 520, borderRadius: 3, mt: 1, boxShadow: '0 8px 30px rgba(0,0,0,0.12)' } }}
+            >
+              {/* Header */}
+              <Box sx={{ px: 2.5, py: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #f3f4f6' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Typography variant="subtitle1" fontWeight={700} color={BLUE}>Notifications</Typography>
+                  {notifications.length > 0 && (
+                    <Chip label={notifications.length} size="small" sx={{ bgcolor: '#eff6ff', color: ACCENT, fontWeight: 700, fontSize: 11 }} />
+                  )}
+                </Box>
+                {notifications.length > 0 && (
+                  <Button size="small" sx={{ color: '#6b7280', textTransform: 'none', fontSize: 12 }} onClick={() => setNotifications([])}>
+                    Clear all
+                  </Button>
+                )}
+              </Box>
+
+              {/* Notification list */}
+              <Box sx={{ overflowY: 'auto', maxHeight: 440 }}>
+                {notifications.length === 0 ? (
+                  <Box sx={{ py: 5, textAlign: 'center' }}>
+                    <NotificationsIcon sx={{ color: '#d1d5db', fontSize: 36, mb: 1 }} />
+                    <Typography variant="body2" color="text.secondary">You're all caught up.</Typography>
+                  </Box>
+                ) : (
+                  notifications.map((notif, idx) => {
+                    const iconMap = {
+                      shift_proposal_received: { icon: <EventNoteIcon sx={{ fontSize: 18 }} />,          color: ACCENT,    bg: '#eff6ff' },
+                      swap_request_received:   { icon: <SwapHorizIcon sx={{ fontSize: 18 }} />,           color: '#7c3aed', bg: '#f5f3ff' },
+                      swap_approved:           { icon: <CheckCircleOutlineIcon sx={{ fontSize: 18 }} />,  color: '#16a34a', bg: '#f0fdf4' },
+                      shift_approved:          { icon: <CheckCircleOutlineIcon sx={{ fontSize: 18 }} />,  color: '#16a34a', bg: '#f0fdf4' },
+                      shift_denied:            { icon: <CancelOutlinedIcon sx={{ fontSize: 18 }} />,      color: '#dc2626', bg: '#fef2f2' },
+                      cover_approved:          { icon: <CheckCircleOutlineIcon sx={{ fontSize: 18 }} />,  color: '#16a34a', bg: '#f0fdf4' },
+                      cover_rejected:          { icon: <CancelOutlinedIcon sx={{ fontSize: 18 }} />,      color: '#dc2626', bg: '#fef2f2' },
+                    }
+                    const { icon, color, bg } = iconMap[notif.type] || { icon: <NotificationsIcon sx={{ fontSize: 18 }} />, color: '#6b7280', bg: '#f9fafb' }
+
+                    return (
+                      <Box key={notif.id}>
+                        <Box sx={{ px: 2.5, py: 2, bgcolor: notif.read ? '#fff' : '#f8faff', '&:hover': { bgcolor: '#f9fafb' } }}>
+                          <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'flex-start' }}>
+                            {/* Type icon */}
+                            <Box sx={{ bgcolor: bg, color, borderRadius: 1.5, p: 0.75, display: 'flex', flexShrink: 0, mt: 0.25 }}>
+                              {icon}
+                            </Box>
+                            <Box sx={{ flex: 1, minWidth: 0 }}>
+                              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 1 }}>
+                                <Typography variant="body2" fontWeight={700} color={BLUE} sx={{ lineHeight: 1.4 }}>
+                                  {notif.title}
+                                </Typography>
+                                <Typography variant="caption" color="text.disabled" sx={{ flexShrink: 0 }}>
+                                  {timeAgo(notif.timestamp)}
+                                </Typography>
+                              </Box>
+                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25, lineHeight: 1.5 }}>
+                                {notif.body}
+                              </Typography>
+
+                              {/* Action buttons for proposals */}
+                              {notif.type === 'shift_proposal_received' && notif.actionData && (
+                                <Box sx={{ display: 'flex', gap: 1, mt: 1.25 }}>
+                                  <Button
+                                    size="small" variant="contained"
+                                    sx={{ bgcolor: '#16a34a', '&:hover': { bgcolor: '#15803d' }, textTransform: 'none', fontWeight: 600, fontSize: 12, py: 0.5, px: 1.5 }}
+                                    onClick={() => {
+                                      handleRespondToProposal(notif.actionData.proposalId, 'accept')
+                                      dismissNotification(notif.id)
+                                    }}
+                                  >
+                                    Accept
+                                  </Button>
+                                  <Button
+                                    size="small" variant="outlined" color="error"
+                                    sx={{ textTransform: 'none', fontWeight: 600, fontSize: 12, py: 0.5, px: 1.5 }}
+                                    onClick={() => {
+                                      handleRespondToProposal(notif.actionData.proposalId, 'deny')
+                                      dismissNotification(notif.id)
+                                    }}
+                                  >
+                                    Decline
+                                  </Button>
+                                </Box>
+                              )}
+                            </Box>
+                            {/* Dismiss button */}
+                            <IconButton size="small" sx={{ color: '#d1d5db', p: 0.25, flexShrink: 0 }} onClick={() => dismissNotification(notif.id)}>
+                              <CancelOutlinedIcon sx={{ fontSize: 15 }} />
+                            </IconButton>
+                          </Box>
+                        </Box>
+                        {idx < notifications.length - 1 && <Divider />}
+                      </Box>
+                    )
+                  })
+                )}
+              </Box>
+            </Popover>
+
             <IconButton size="small" sx={{ color: '#6b7280' }}><HelpOutlineIcon /></IconButton>
             <Avatar
               src={currentUser?.profile_picture || undefined}
@@ -493,6 +782,82 @@ function Dashboard() {
                   </Box>
                 ))}
               </Box>
+            </Paper>
+          )}
+
+          {/* ── MARKETPLACE PANEL ── shown when staff clicks the Marketplace nav item */}
+          {activeNav === 'Marketplace' && (
+            <Paper elevation={0} sx={{ border: '1px solid #e5e7eb', borderRadius: 3, p: 3, mb: 3 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2.5 }}>
+                <StorefrontIcon sx={{ color: ACCENT, fontSize: 22 }} />
+                <Typography variant="subtitle1" fontWeight={700} color={BLUE}>Shift Marketplace</Typography>
+                <Chip
+                  label="Open Shifts"
+                  size="small"
+                  sx={{ bgcolor: '#eff6ff', color: ACCENT, fontWeight: 700, fontSize: 11 }}
+                />
+              </Box>
+
+              {marketplaceLoading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                  <CircularProgress size={28} />
+                </Box>
+              ) : openShifts.length === 0 ? (
+                <Box sx={{ textAlign: 'center', py: 5 }}>
+                  <StorefrontIcon sx={{ fontSize: 44, color: '#d1d5db', mb: 1 }} />
+                  <Typography variant="body2" color="text.secondary">No open shifts available right now.</Typography>
+                  <Typography variant="caption" color="text.secondary">Check back later or ask your manager to post a shift.</Typography>
+                </Box>
+              ) : (
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', lg: '1fr 1fr 1fr' }, gap: 2 }}>
+                  {openShifts.map(shift => (
+                    <Box
+                      key={shift._id}
+                      sx={{
+                        border: '1px solid #e5e7eb', borderRadius: 2.5, p: 2.5,
+                        bgcolor: '#fafafa', display: 'flex', flexDirection: 'column', gap: 1.5,
+                        transition: 'box-shadow 0.15s', '&:hover': { boxShadow: '0 2px 10px rgba(0,0,0,0.08)' }
+                      }}
+                    >
+                      {/* Date badge */}
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <Chip
+                          label={shift.date}
+                          size="small"
+                          sx={{ bgcolor: '#eff6ff', color: ACCENT, fontWeight: 700, fontSize: 11 }}
+                        />
+                        <Typography variant="caption" sx={{ color: '#6b7280', fontWeight: 600 }}>
+                          {shift.shift_start_time} – {shift.shift_end_time}
+                        </Typography>
+                      </Box>
+
+                      {/* Original owner info */}
+                      <Box>
+                        <Typography variant="body2" fontWeight={600} color={BLUE}>
+                          {shift.belongs_to?.role || 'Staff'} — {shift.belongs_to?.department || 'General'}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          Posted by {shift.belongs_to?.staffName || 'a colleague'}
+                        </Typography>
+                      </Box>
+
+                      <Button
+                        variant="contained" size="small"
+                        disabled={claimingId === shift._id}
+                        startIcon={claimingId === shift._id ? <CircularProgress size={14} sx={{ color: '#fff' }} /> : null}
+                        sx={{
+                          mt: 'auto', bgcolor: ACCENT, color: '#fff', textTransform: 'none',
+                          fontWeight: 600, borderRadius: 2, '&:hover': { bgcolor: '#1d4ed8' },
+                          '&.Mui-disabled': { bgcolor: '#93c5fd', color: '#fff' }
+                        }}
+                        onClick={() => claimShift(shift._id)}
+                      >
+                        {claimingId === shift._id ? 'Claiming…' : 'Claim Shift'}
+                      </Button>
+                    </Box>
+                  ))}
+                </Box>
+              )}
             </Paper>
           )}
 
