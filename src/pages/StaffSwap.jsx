@@ -86,15 +86,20 @@ export default function StaffSwap() {
       const swappingEnd    = new Date(swapEndTime);
       const currentStart   = new Date(actualTime);
       const currentEnd     = new Date(actualEndTime);
+
+      // Use local-time components so dates match the YYYY-MM-DD roster format exactly
+      const toYMD  = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+      const toHHMM = (d) => `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
+
       const payload = {
-        date:                 currentStart.toDateString(),
+        date:                 toYMD(currentStart),
         belongs_to:           loggedInUser._id,
-        shift_start_time:     currentStart.toLocaleTimeString(),
-        shift_end_time:       currentEnd.toLocaleTimeString(),
-        swapDate:             swapingTime.toDateString(),
+        shift_start_time:     toHHMM(currentStart),
+        shift_end_time:       toHHMM(currentEnd),
+        swapDate:             toYMD(swapingTime),
         swap_belongs_to:      selectUser,
-        swap_shift_start_time: swapingTime.toLocaleString(),
-        swap_shift_end_time:  swappingEnd.toLocaleString(),
+        swap_shift_start_time: toHHMM(swapingTime),
+        swap_shift_end_time:  toHHMM(swappingEnd),
       };
       const res = await apiFetch(`${import.meta.env.VITE_API_BASE_URL}/api/initiate-swap`, {
         method: "POST",

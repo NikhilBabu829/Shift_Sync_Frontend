@@ -34,8 +34,10 @@ export default function ClockIn() {
 
     // Authenticated staff profile loaded on mount
     const [currentUser, setCurrentUser] = useState(null)
-    // Organisation HQ lat/lng used for the geo-fence check
+    // Organisation HQ lat/lng (legacy fallback) used for the geo-fence check
     const [orgCoords, setOrgCoords] = useState(null)
+    // Array of named site locations for multi-site geo-fencing; falls back to orgCoords if empty
+    const [orgLocations, setOrgLocations] = useState([])
     // Organisation display name shown in the location chip
     const [orgName, setOrgName] = useState('')
     // Today's assigned shift from the roster; undefined = still loading, null = no shift today
@@ -81,7 +83,7 @@ export default function ClockIn() {
         return false
     }
 
-    // Fetches the organisation's HQ coordinates and name for the geo-fence check
+    // Fetches organisation config including all site locations for geo-fencing
     async function fetchOrgConfig() {
         try {
             const res = await apiFetch(`${BASE}/api/org-config`, {
@@ -90,6 +92,7 @@ export default function ClockIn() {
             if (res.ok) {
                 const data = await res.json()
                 setOrgCoords(data.hq_coordinates)
+                setOrgLocations(data.locations || [])
                 setOrgName(data.org_name)
             } else {
                 showSnack('Could not load organisation location. Contact your manager.', 'warning')
@@ -248,11 +251,15 @@ export default function ClockIn() {
         return null
     }
 
-    // Main clock-in handler: validates org coords, collects GPS + face in parallel, runs spoof checks, then posts to backend
+    // Main clock-in handler: validates org locations, collects GPS + face in parallel, runs spoof checks, then posts to backend
     async function handleClockIn(e) {
         e.preventDefault()
-        if (!orgCoords?.lat || !orgCoords?.lng) {
-            showSnack('Organisation HQ coordinates not set. Contact your manager.', 'error')
+        // Build effective site list: prefer named locations array, fall back to legacy HQ coord
+        const effectiveLocations = orgLocations.length > 0
+            ? orgLocations
+            : (orgCoords?.lat && orgCoords?.lng ? [{ name: 'HQ', ...orgCoords }] : [])
+        if (effectiveLocations.length === 0) {
+            showSnack('No site locations configured. Contact your manager.', 'error')
             return
         }
         if (!navigator.geolocation) {
@@ -315,16 +322,17 @@ export default function ClockIn() {
             }
         }
 
-        // Geo-fence check: staff must be within ±0.001° (~100m) of the org HQ
+        // Geo-fence check: staff must be within ±0.001° (~100m) of at least one site location
         const primary = polls[0]
         const tolerance = 0.001
-        if (
-            primary.lat < orgCoords.lat - tolerance || primary.lat > orgCoords.lat + tolerance ||
-            primary.lng < orgCoords.lng - tolerance || primary.lng > orgCoords.lng + tolerance
-        ) {
+        const withinAnySite = effectiveLocations.some(loc =>
+            primary.lat >= loc.lat - tolerance && primary.lat <= loc.lat + tolerance &&
+            primary.lng >= loc.lng - tolerance && primary.lng <= loc.lng + tolerance
+        )
+        if (!withinAnySite) {
             setLoading(false)
             setLoadingStep('')
-            showSnack('You are outside the work premises. Clock-in is only allowed on-site.', 'error')
+            showSnack('You are outside all work premises. Clock-in is only allowed on-site.', 'error')
             return
         }
 
@@ -428,10 +436,14 @@ export default function ClockIn() {
                     {/* Org location indicator */}
                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, mb: 3 }}>
                         <LocationOnIcon sx={{ color: BLUE, fontSize: 18 }} />
-                        <Typography variant="body2" color="text.secondary">{orgName || 'Your Organisation'} HQ</Typography>
-                        {/* Green chip if HQ coordinates are configured, red if not */}
-                        {orgCoords?.lat
-                            ? <Chip label="Location set" size="small" sx={{ bgcolor: '#dcfce7', color: '#16a34a', fontWeight: 700, fontSize: 10 }} />
+                        <Typography variant="body2" color="text.secondary">{orgName || 'Your Organisation'}</Typography>
+                        {/* Green chip showing site count, red if no locations configured */}
+                        {(orgLocations.length > 0 || orgCoords?.lat)
+                            ? <Chip
+                                label={orgLocations.length > 1 ? `${orgLocations.length} sites` : 'Location set'}
+                                size="small"
+                                sx={{ bgcolor: '#dcfce7', color: '#16a34a', fontWeight: 700, fontSize: 10 }}
+                              />
                             : <Chip label="No location" size="small" sx={{ bgcolor: '#fee2e2', color: '#dc2626', fontWeight: 700, fontSize: 10 }} />
                         }
                     </Box>
@@ -546,7 +558,7 @@ export default function ClockIn() {
                     <form onSubmit={handleClockIn}>
                         {/* Button disabled if loading, org has no location, no shift, or the window hasn't opened */}
                         <Button type="submit" variant="contained" fullWidth size="large"
-                            disabled={loading || !orgCoords?.lat || !todayShift || (() => {
+                            disabled={loading || (orgLocations.length === 0 && !orgCoords?.lat) || !todayShift || (() => {
                                 if (!todayShift) return true
                                 const [h, m] = todayShift.shift_start_time.split(':').map(Number)
                                 const openAt = new Date()

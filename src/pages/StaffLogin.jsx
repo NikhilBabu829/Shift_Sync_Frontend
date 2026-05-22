@@ -45,7 +45,7 @@ export default function StaffLogin() {
       setDisplaySnackbar(true);
     }
     if (tokenFromParams) {
-      // Validate the new OAuth token; if valid, store it and go to dashboard
+      // Validate the new OAuth token; if valid, store it and go to dashboard (or pending swap)
       apiFetch(`${import.meta.env.VITE_API_BASE_URL}/api/staff-auth`, {
         method: "GET",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${tokenFromParams}` },
@@ -54,7 +54,17 @@ export default function StaffLogin() {
           localStorage.removeItem("aes52");
           localStorage.setItem("aes52", tokenFromParams);
           localStorage.setItem("userRole", "staff");
-          navigate("/dashboard");
+          const pendingSwapId = localStorage.getItem("pendingSwapAcceptId");
+          const pendingDeclineId = localStorage.getItem("pendingSwapDeclineId");
+          if (pendingSwapId) {
+            localStorage.removeItem("pendingSwapAcceptId");
+            navigate(`/accept-swap/${pendingSwapId}`);
+          } else if (pendingDeclineId) {
+            localStorage.removeItem("pendingSwapDeclineId");
+            navigate(`/decline-swap/${pendingDeclineId}`);
+          } else {
+            navigate("/dashboard");
+          }
         } else {
           setSnackbarMessage("Unauthorised, please login again.");
           setDisplaySnackbar(true);
@@ -68,7 +78,17 @@ export default function StaffLogin() {
       }).then((res) => {
         if (res.ok) {
           localStorage.setItem("userRole", "staff");
-          navigate("/dashboard");
+          const pendingSwapId = localStorage.getItem("pendingSwapAcceptId");
+          const pendingDeclineId = localStorage.getItem("pendingSwapDeclineId");
+          if (pendingSwapId) {
+            localStorage.removeItem("pendingSwapAcceptId");
+            navigate(`/accept-swap/${pendingSwapId}`);
+          } else if (pendingDeclineId) {
+            localStorage.removeItem("pendingSwapDeclineId");
+            navigate(`/decline-swap/${pendingDeclineId}`);
+          } else {
+            navigate("/dashboard");
+          }
         } else {
           setSnackbarMessage("Session expired, please login again.");
           setDisplaySnackbar(true);

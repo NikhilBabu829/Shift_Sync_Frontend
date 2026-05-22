@@ -7,9 +7,10 @@ import {
   Box, Button, Typography, CircularProgress, Avatar, Chip,
   LinearProgress, TextField, InputAdornment, IconButton, Paper,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Snackbar, Alert,
-  Fab, Tooltip, Badge, Popover, Divider,
+  Fab, Tooltip, Badge, Popover, Divider, Tabs, Tab, Select, MenuItem, FormControl, InputLabel,
 } from "@mui/material";
 import DashboardIcon from "@mui/icons-material/Dashboard";
+import BeachAccessIcon from "@mui/icons-material/BeachAccess";
 import PeopleIcon from "@mui/icons-material/People";
 import AccessTimeIcon from "@mui/icons-material/AccessTime";
 import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
@@ -35,6 +36,7 @@ import StorefrontIcon from "@mui/icons-material/Storefront";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import BlockIcon from "@mui/icons-material/Block";
 import CancelOutlinedIcon from "@mui/icons-material/CancelOutlined";
+import RestartAltIcon from "@mui/icons-material/RestartAlt";
 
 function timeAgo(date) {
   const diff = Math.floor((Date.now() - new Date(date)) / 1000)
@@ -65,6 +67,7 @@ const NAV_ITEMS = [
   { icon: <PersonAddIcon fontSize="small" />, label: "Invite Staff" },
   { icon: <SwapHorizIcon fontSize="small" />, label: "Shift Swaps" },
   { icon: <StorefrontIcon fontSize="small" />, label: "Cover Requests" },
+  { icon: <BeachAccessIcon fontSize="small" />, label: "Leave Requests" },
   { icon: <SettingsIcon fontSize="small" />, label: "Settings" },
 ];
 
@@ -92,6 +95,10 @@ export default function ManagerDashboard() {
   const [weeklyData, setWeeklyData]         = useState([]);
   // How many staff are currently on shift vs. total scheduled
   const [shiftStats, setShiftStats]         = useState({ onShift: 0, total: 0 });
+  // ID of the clock-in record currently showing the reset confirmation prompt
+  const [resetConfirmId, setResetConfirmId] = useState(null);
+  // ID of the clock-in currently being reset (shows per-card spinner)
+  const [resettingId, setResettingId]       = useState(null);
   // Controls the bottom snackbar notification
   const [snack, setSnack] = useState({ open: false, msg: '', severity: 'success' });
   // Organisation roles shown in the Settings panel
@@ -100,9 +107,32 @@ export default function ManagerDashboard() {
   const [roleInput, setRoleInput]           = useState('');
   // True while a role add/remove API call is in flight
   const [rolesSaving, setRolesSaving]       = useState(false);
+  // Organisation site locations for GPS geo-fencing
+  const [orgLocations, setOrgLocations]     = useState([]);
+  // Form inputs for adding a new site location
+  const [locationName, setLocationName]     = useState('');
+  const [locationLat, setLocationLat]       = useState('');
+  const [locationLng, setLocationLng]       = useState('');
+  // True while a location add/remove API call is in flight
+  const [locationsSaving, setLocationsSaving] = useState(false);
   // Notification bell — list of in-session notifications and popover anchor
   const [notifications, setNotifications]           = useState([]);
   const [notifAnchor, setNotifAnchor]               = useState(null);
+  // Leave requests awaiting manager approval
+  const [pendingLeaveRequests, setPendingLeaveRequests] = useState([]);
+  const [leaveActionId, setLeaveActionId]               = useState(null);
+  const [denyReasonId, setDenyReasonId]                 = useState(null);
+  const [denyReason, setDenyReason]                     = useState('');
+  // Leave Register — full leave history with filters
+  const [leaveTab, setLeaveTab]                         = useState(0); // 0=Pending, 1=Register
+  const [leaveRegister, setLeaveRegister]               = useState([]);
+  const [leaveRegisterLoading, setLeaveRegisterLoading] = useState(false);
+  const [leaveFilterFrom, setLeaveFilterFrom]           = useState('');
+  const [leaveFilterTo, setLeaveFilterTo]               = useState('');
+  const [leaveFilterStatus, setLeaveFilterStatus]       = useState('');
+  const [revokeId, setRevokeId]                         = useState(null);
+  const [revokeReasonId, setRevokeReasonId]             = useState(null);
+  const [revokeReason, setRevokeReason]                 = useState('');
   // Cover requests awaiting manager approval (status: pending_cover)
   const [pendingCoverShifts, setPendingCoverShifts] = useState([]);
   // Shifts currently live in the Marketplace (status: open_cover)
@@ -233,6 +263,90 @@ export default function ManagerDashboard() {
     } catch { /* keep empty */ }
   }
 
+  async function fetchPendingLeaveRequests() {
+    try {
+      const res = await apiFetch(`${BASE}/api/pending-leave-requests`, {
+        headers: { authorization: `Bearer ${managerToken}` }
+      })
+      if (res.ok) { const d = await res.json(); setPendingLeaveRequests(d.leaves || []) }
+    } catch { /* keep empty */ }
+  }
+
+  async function handleApproveLeave(id) {
+    setLeaveActionId(id)
+    try {
+      const res = await apiFetch(`${BASE}/api/leave-request-approve/${id}`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${managerToken}` }
+      })
+      const d = await res.json()
+      if (res.ok) {
+        setPendingLeaveRequests(prev => prev.filter(l => l._id !== id))
+        setSnack({ open: true, msg: 'Leave request approved.', severity: 'success' })
+      } else {
+        setSnack({ open: true, msg: d.message || 'Failed to approve leave.', severity: 'error' })
+      }
+    } catch { setSnack({ open: true, msg: 'Network error.', severity: 'error' }) }
+    finally { setLeaveActionId(null) }
+  }
+
+  async function handleDenyLeave(id) {
+    setLeaveActionId(id)
+    try {
+      const res = await apiFetch(`${BASE}/api/leave-request-deny/${id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', authorization: `Bearer ${managerToken}` },
+        body: JSON.stringify({ managerNotes: denyReason || null })
+      })
+      const d = await res.json()
+      if (res.ok) {
+        setPendingLeaveRequests(prev => prev.filter(l => l._id !== id))
+        setDenyReasonId(null)
+        setDenyReason('')
+        setSnack({ open: true, msg: 'Leave request denied.', severity: 'info' })
+      } else {
+        setSnack({ open: true, msg: d.message || 'Failed to deny leave.', severity: 'error' })
+      }
+    } catch { setSnack({ open: true, msg: 'Network error.', severity: 'error' }) }
+    finally { setLeaveActionId(null) }
+  }
+
+  async function fetchAllLeaveRequests() {
+    setLeaveRegisterLoading(true)
+    try {
+      const params = new URLSearchParams()
+      if (leaveFilterFrom)   params.set('from', leaveFilterFrom)
+      if (leaveFilterTo)     params.set('to', leaveFilterTo)
+      if (leaveFilterStatus) params.set('status', leaveFilterStatus)
+      const res = await apiFetch(`${BASE}/api/all-leave-requests?${params}`, {
+        headers: { authorization: `Bearer ${managerToken}` }
+      })
+      if (res.ok) { const d = await res.json(); setLeaveRegister(d.leaves || []) }
+    } catch { /* keep empty */ }
+    finally { setLeaveRegisterLoading(false) }
+  }
+
+  async function handleRevokeLeave(id) {
+    setRevokeId(id)
+    try {
+      const res = await apiFetch(`${BASE}/api/leave-request-revoke/${id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', authorization: `Bearer ${managerToken}` },
+        body: JSON.stringify({ managerNotes: revokeReason || null })
+      })
+      const d = await res.json()
+      if (res.ok) {
+        setLeaveRegister(prev => prev.map(l => l._id === id ? { ...l, status: 'revoked', managerNotes: revokeReason || null } : l))
+        setRevokeReasonId(null)
+        setRevokeReason('')
+        setSnack({ open: true, msg: 'Leave revoked — staff notified and calendar event removed.', severity: 'info' })
+      } else {
+        setSnack({ open: true, msg: d.message || 'Failed to revoke leave.', severity: 'error' })
+      }
+    } catch { setSnack({ open: true, msg: 'Network error.', severity: 'error' }) }
+    finally { setRevokeId(null) }
+  }
+
   // Adds a new role to the organisation's role list via the API
   async function handleAddRole() {
     const role = roleInput.trim()
@@ -265,6 +379,70 @@ export default function ManagerDashboard() {
     } catch { setSnack({ open: true, msg: 'Network error.', severity: 'error' }) }
   }
 
+  async function fetchOrgLocations() {
+    try {
+      const res = await apiFetch(`${BASE}/api/org-locations`, {
+        headers: { authorization: `Bearer ${managerToken}` }
+      });
+      if (res.ok) { const d = await res.json(); setOrgLocations(d.locations || []); }
+    } catch { /* non-critical */ }
+  }
+
+  async function handleAddLocation() {
+    const name = locationName.trim()
+    const lat  = parseFloat(locationLat)
+    const lng  = parseFloat(locationLng)
+    if (!name || isNaN(lat) || isNaN(lng)) {
+      setSnack({ open: true, msg: 'Name, latitude, and longitude are required.', severity: 'error' })
+      return
+    }
+    setLocationsSaving(true)
+    try {
+      const res = await apiFetch(`${BASE}/api/org-locations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', authorization: `Bearer ${managerToken}` },
+        body: JSON.stringify({ name, lat, lng })
+      })
+      const data = await res.json()
+      if (res.ok) {
+        setOrgLocations(data.locations)
+        setLocationName(''); setLocationLat(''); setLocationLng('')
+        setSnack({ open: true, msg: 'Location added.', severity: 'success' })
+      } else {
+        setSnack({ open: true, msg: data.message || 'Failed to add location.', severity: 'error' })
+      }
+    } catch { setSnack({ open: true, msg: 'Network error.', severity: 'error' }) }
+    finally { setLocationsSaving(false) }
+  }
+
+  async function handleRemoveLocation(locationId) {
+    try {
+      const res = await apiFetch(`${BASE}/api/org-locations/${locationId}`, {
+        method: 'DELETE',
+        headers: { authorization: `Bearer ${managerToken}` }
+      })
+      const data = await res.json()
+      if (res.ok) { setOrgLocations(data.locations); setSnack({ open: true, msg: 'Location removed.', severity: 'info' }); }
+      else setSnack({ open: true, msg: data.message || 'Failed to remove location.', severity: 'error' })
+    } catch { setSnack({ open: true, msg: 'Network error.', severity: 'error' }) }
+  }
+
+  function useCurrentGPSForLocation() {
+    if (!navigator.geolocation) {
+      setSnack({ open: true, msg: 'Geolocation not supported by your browser.', severity: 'error' })
+      return
+    }
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        setLocationLat(pos.coords.latitude.toFixed(6))
+        setLocationLng(pos.coords.longitude.toFixed(6))
+        setSnack({ open: true, msg: 'GPS coordinates filled in.', severity: 'success' })
+      },
+      () => setSnack({ open: true, msg: 'Could not get your location.', severity: 'error' }),
+      { enableHighAccuracy: true, timeout: 8000 }
+    )
+  }
+
   // Validates the manager's JWT and, on success, kicks off all data fetches in parallel
   async function checkManagerAuth() {
     try {
@@ -282,8 +460,10 @@ export default function ManagerDashboard() {
         fetchWeeklyAttendance();
         fetchShiftStats();
         fetchOrgRoles();
+        fetchOrgLocations();
         fetchPendingCoverShifts();
         fetchActiveOpenShifts();
+        fetchPendingLeaveRequests();
         registerPushNotifications(managerToken, 'manager');
       } else {
         localStorage.removeItem("aes52");
@@ -373,12 +553,55 @@ export default function ManagerDashboard() {
       })
     })
 
+    socket.on('leave_request_submitted', ({ leaveId, staffName, leaveType, startDate, endDate, notes }) => {
+      const typeLabel = { sick: 'Sick Leave', annual: 'Annual Leave', personal: 'Personal Leave' }[leaveType] || leaveType
+      setPendingLeaveRequests(prev => {
+        const exists = prev.some(l => l._id === leaveId)
+        if (exists) return prev
+        return [...prev, { _id: leaveId, staffMember: { staffName }, leaveType, startDate, endDate, notes, status: 'pending', createdAt: new Date().toISOString() }]
+      })
+      addNotification({
+        type: 'leave_request_submitted',
+        title: 'New Leave Request',
+        body: `${staffName} has requested ${typeLabel} from ${startDate} to ${endDate}.`,
+        actionData: null
+      })
+    })
+
+    // A staff member just clocked in — add them to the live ledger without a full refresh
+    socket.on('staff_clocked_in', (entry) => {
+      setTodayLedger(prev => {
+        const exists = prev.some(r => String(r._id) === String(entry._id))
+        return exists ? prev : [...prev, entry]
+      })
+      setShiftStats(prev => ({ ...prev, onShift: prev.onShift + 1 }))
+      addNotification({
+        type: 'staff_clocked_in',
+        title: 'Staff Clocked In',
+        body: `${entry.name} clocked in at ${entry.timeClockedIn}${entry.status === 'LATE IN' ? ' (Late)' : ''}`,
+        actionData: null,
+      })
+    })
+
+    socket.on('leave_revoked', ({ leaveType, startDate, endDate }) => {
+      const typeLabel = { sick: 'Sick Leave', annual: 'Annual Leave', personal: 'Personal Leave' }[leaveType] || leaveType
+      addNotification({
+        type: 'leave_revoked',
+        title: 'Leave Revoked',
+        body: `${typeLabel} from ${startDate} to ${endDate} has been revoked.`,
+        actionData: null
+      })
+    })
+
     return () => {
       socket.off('connect', handleConnect)
       socket.off('shift_proposal_responded')
       socket.off('cover_request_pending')
       socket.off('shift_claimed')
       socket.off('swap_pending_approval')
+      socket.off('leave_request_submitted')
+      socket.off('leave_revoked')
+      socket.off('staff_clocked_in')
     }
   }, [currentManager?._id]);
 
@@ -436,6 +659,30 @@ export default function ManagerDashboard() {
       }
     } catch { setSnack({ open: true, msg: 'Network error — please try again', severity: 'error' }) }
     finally { setCoverActionId(null) }
+  }
+
+  // Resets a staff member's clock-in so they can clock in again
+  async function handleResetClockIn(clockInId) {
+    setResettingId(clockInId)
+    try {
+      const res = await apiFetch(`${BASE}/api/reset-clockin/${clockInId}`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${managerToken}` }
+      })
+      const data = await res.json()
+      if (res.ok) {
+        setTodayLedger(prev => prev.filter(r => String(r._id) !== String(clockInId)))
+        setShiftStats(prev => ({ ...prev, onShift: Math.max(0, prev.onShift - 1) }))
+        setSnack({ open: true, msg: 'Clock-in reset — staff member can now clock in again.', severity: 'info' })
+      } else {
+        setSnack({ open: true, msg: data.message || 'Reset failed', severity: 'error' })
+      }
+    } catch {
+      setSnack({ open: true, msg: 'Network error — please try again', severity: 'error' })
+    } finally {
+      setResettingId(null)
+      setResetConfirmId(null)
+    }
   }
 
   // Clears the JWT, disconnects the socket, and navigates to the landing page
@@ -620,9 +867,10 @@ export default function ManagerDashboard() {
     if (label === "Invite Staff") navigate("/invite-staff");
     // "Attendance" triggers an immediate download rather than navigating to a new page
     if (label === "Attendance") downloadAttendance();
-    if (label === "Settings") fetchOrgRoles();
+    if (label === "Settings") { fetchOrgRoles(); fetchOrgLocations(); }
     if (label === "Shift Swaps")     fetchPendingSwaps();
     if (label === "Cover Requests") { fetchPendingCoverShifts(); fetchActiveOpenShifts(); }
+    if (label === "Leave Requests") { setLeaveTab(0); fetchPendingLeaveRequests(); }
   }
 
   if (loading) {
@@ -814,6 +1062,8 @@ export default function ManagerDashboard() {
                       shift_proposal_responded:{ icon: <CheckCircleOutlineIcon sx={{ fontSize: 18 }} />,   color: ACCENT,    bg: '#eff6ff' },
                       shift_claimed:           { icon: <CheckCircleOutlineIcon sx={{ fontSize: 18 }} />,   color: '#16a34a', bg: '#f0fdf4' },
                       swap_pending_approval:   { icon: <SwapHorizIcon sx={{ fontSize: 18 }} />,            color: '#7c3aed', bg: '#f5f3ff' },
+                      leave_request_submitted: { icon: <BeachAccessIcon sx={{ fontSize: 18 }} />,          color: '#d97706', bg: '#fffbeb' },
+                      staff_clocked_in:        { icon: <AccessTimeIcon sx={{ fontSize: 18 }} />,           color: '#16a34a', bg: '#f0fdf4' },
                     }
                     const { icon, color, bg } = iconMap[notif.type] || { icon: <NotificationsIcon sx={{ fontSize: 18 }} />, color: '#6b7280', bg: '#f9fafb' }
 
@@ -1019,6 +1269,242 @@ export default function ManagerDashboard() {
             </Box>
           )}
 
+          {/* ── LEAVE REQUESTS PANEL — shown when "Leave Requests" nav item is active ── */}
+          {activeNav === "Leave Requests" && (
+            <Box>
+              <Typography variant="h4" fontWeight={800} color={BLUE} gutterBottom>Leave Requests</Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                Manage leave requests and view the full leave register for your team.
+              </Typography>
+
+              {/* Tabs: Pending / Leave Register */}
+              <Tabs
+                value={leaveTab}
+                onChange={(_, v) => {
+                  setLeaveTab(v)
+                  if (v === 1) fetchAllLeaveRequests()
+                }}
+                sx={{ mb: 3, borderBottom: '1px solid #e5e7eb', '& .MuiTab-root': { textTransform: 'none', fontWeight: 600 } }}
+              >
+                <Tab label={`Pending (${pendingLeaveRequests.length})`} />
+                <Tab label="Leave Register" />
+              </Tabs>
+
+              {/* ── TAB 0: PENDING ── */}
+              {leaveTab === 0 && (
+                pendingLeaveRequests.length === 0 ? (
+                  <Paper elevation={0} sx={{ border: "1px solid #e5e7eb", borderRadius: 3, p: 6, textAlign: "center" }}>
+                    <BeachAccessIcon sx={{ color: "#d1d5db", fontSize: 48, mb: 1 }} />
+                    <Typography variant="body2" color="text.secondary">No pending leave requests.</Typography>
+                  </Paper>
+                ) : (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    {pendingLeaveRequests.map(lr => {
+                      const typeLabel = { sick: 'Sick Leave', annual: 'Annual Leave', personal: 'Personal Leave' }[lr.leaveType] || lr.leaveType
+                      const isDenyOpen = denyReasonId === lr._id
+                      return (
+                        <Paper key={lr._id} elevation={0} sx={{ border: "1px solid #e5e7eb", borderRadius: 3, p: 3 }}>
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 2 }}>
+                            <Box>
+                              <Typography variant="subtitle2" fontWeight={700} color={BLUE}>
+                                {lr.staffMember?.staffName || 'Unknown'}
+                                <Box component="span" sx={{ fontWeight: 400, color: 'text.secondary', ml: 1 }}>— {typeLabel}</Box>
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
+                                {lr.startDate} → {lr.endDate}
+                              </Typography>
+                              {lr.notes && (
+                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
+                                  Note: {lr.notes}
+                                </Typography>
+                              )}
+                            </Box>
+                            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                              <Button
+                                size="small" variant="contained"
+                                disabled={leaveActionId === lr._id}
+                                sx={{ bgcolor: '#16a34a', '&:hover': { bgcolor: '#15803d' }, textTransform: 'none', fontWeight: 600 }}
+                                onClick={() => handleApproveLeave(lr._id)}
+                              >
+                                {leaveActionId === lr._id ? <CircularProgress size={16} sx={{ color: '#fff' }} /> : 'Approve'}
+                              </Button>
+                              <Button
+                                size="small" variant="outlined" color="error"
+                                disabled={leaveActionId === lr._id}
+                                sx={{ textTransform: 'none', fontWeight: 600 }}
+                                onClick={() => { setDenyReasonId(isDenyOpen ? null : lr._id); setDenyReason('') }}
+                              >
+                                Deny
+                              </Button>
+                            </Box>
+                          </Box>
+                          {isDenyOpen && (
+                            <Box sx={{ mt: 2, display: 'flex', gap: 1.5, alignItems: 'flex-start' }}>
+                              <TextField
+                                size="small" fullWidth placeholder="Reason for denial (optional)"
+                                value={denyReason}
+                                onChange={e => setDenyReason(e.target.value)}
+                                sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+                              />
+                              <Button
+                                variant="contained" color="error" size="small"
+                                disabled={leaveActionId === lr._id}
+                                sx={{ textTransform: 'none', fontWeight: 600, flexShrink: 0 }}
+                                onClick={() => handleDenyLeave(lr._id)}
+                              >
+                                Confirm Deny
+                              </Button>
+                            </Box>
+                          )}
+                        </Paper>
+                      )
+                    })}
+                  </Box>
+                )
+              )}
+
+              {/* ── TAB 1: LEAVE REGISTER ── */}
+              {leaveTab === 1 && (
+                <Box>
+                  {/* Filter bar */}
+                  <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', mb: 3, alignItems: 'flex-end' }}>
+                    <TextField
+                      size="small" label="From date" type="date" value={leaveFilterFrom}
+                      onChange={e => setLeaveFilterFrom(e.target.value)}
+                      slotProps={{ inputLabel: { shrink: true } }}
+                      sx={{ width: 160, '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+                    />
+                    <TextField
+                      size="small" label="To date" type="date" value={leaveFilterTo}
+                      onChange={e => setLeaveFilterTo(e.target.value)}
+                      slotProps={{ inputLabel: { shrink: true } }}
+                      sx={{ width: 160, '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+                    />
+                    <FormControl size="small" sx={{ minWidth: 150 }}>
+                      <InputLabel>Status</InputLabel>
+                      <Select
+                        value={leaveFilterStatus}
+                        label="Status"
+                        onChange={e => setLeaveFilterStatus(e.target.value)}
+                        sx={{ borderRadius: 2 }}
+                      >
+                        <MenuItem value="">All</MenuItem>
+                        <MenuItem value="pending">Pending</MenuItem>
+                        <MenuItem value="approved">Approved</MenuItem>
+                        <MenuItem value="denied">Denied</MenuItem>
+                        <MenuItem value="revoked">Revoked</MenuItem>
+                      </Select>
+                    </FormControl>
+                    <Button
+                      variant="contained" size="small"
+                      disabled={leaveRegisterLoading}
+                      sx={{ bgcolor: ACCENT, textTransform: 'none', fontWeight: 600, borderRadius: 2, px: 2.5 }}
+                      onClick={fetchAllLeaveRequests}
+                    >
+                      {leaveRegisterLoading ? <CircularProgress size={16} sx={{ color: '#fff' }} /> : 'Search'}
+                    </Button>
+                    {(leaveFilterFrom || leaveFilterTo || leaveFilterStatus) && (
+                      <Button
+                        size="small" variant="text"
+                        sx={{ textTransform: 'none', color: '#6b7280' }}
+                        onClick={() => { setLeaveFilterFrom(''); setLeaveFilterTo(''); setLeaveFilterStatus(''); fetchAllLeaveRequests(); }}
+                      >
+                        Clear
+                      </Button>
+                    )}
+                  </Box>
+
+                  {/* Results */}
+                  {leaveRegisterLoading ? (
+                    <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
+                      <CircularProgress />
+                    </Box>
+                  ) : leaveRegister.length === 0 ? (
+                    <Paper elevation={0} sx={{ border: "1px solid #e5e7eb", borderRadius: 3, p: 6, textAlign: "center" }}>
+                      <BeachAccessIcon sx={{ color: "#d1d5db", fontSize: 48, mb: 1 }} />
+                      <Typography variant="body2" color="text.secondary">No leave records found. Try adjusting the filters and clicking Search.</Typography>
+                    </Paper>
+                  ) : (
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      {leaveRegister.map(lr => {
+                        const typeLabel   = { sick: 'Sick Leave', annual: 'Annual Leave', personal: 'Personal Leave' }[lr.leaveType] || lr.leaveType
+                        const statusMeta  = {
+                          pending:  { label: 'Pending',  color: '#d97706', bg: '#fef9c3' },
+                          approved: { label: 'Approved', color: '#16a34a', bg: '#dcfce7' },
+                          denied:   { label: 'Denied',   color: '#dc2626', bg: '#fee2e2' },
+                          revoked:  { label: 'Revoked',  color: '#6b7280', bg: '#f3f4f6' },
+                        }[lr.status] || { label: lr.status, color: '#6b7280', bg: '#f3f4f6' }
+                        const isRevokeOpen = revokeReasonId === lr._id
+                        const canRevoke    = lr.status === 'approved'
+                        return (
+                          <Paper key={lr._id} elevation={0} sx={{ border: "1px solid #e5e7eb", borderRadius: 3, p: 3 }}>
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 2 }}>
+                              <Box>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5, flexWrap: 'wrap' }}>
+                                  <Typography variant="subtitle2" fontWeight={700} color={BLUE}>
+                                    {lr.staffMember?.staffName || 'Unknown'}
+                                  </Typography>
+                                  <Box component="span" sx={{ color: 'text.secondary', fontSize: '0.8rem' }}>— {typeLabel}</Box>
+                                  <Chip
+                                    label={statusMeta.label} size="small"
+                                    sx={{ bgcolor: statusMeta.bg, color: statusMeta.color, fontWeight: 700, fontSize: 10, height: 20 }}
+                                  />
+                                </Box>
+                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                                  {lr.startDate} → {lr.endDate}
+                                  {lr.staffMember?.department ? ` · ${lr.staffMember.department}` : ''}
+                                  {lr.staffMember?.role       ? ` · ${lr.staffMember.role}` : ''}
+                                </Typography>
+                                {lr.notes && (
+                                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
+                                    Note: {lr.notes}
+                                  </Typography>
+                                )}
+                                {lr.managerNotes && (
+                                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25, fontStyle: 'italic' }}>
+                                    Manager: {lr.managerNotes}
+                                  </Typography>
+                                )}
+                              </Box>
+                              {canRevoke && (
+                                <Button
+                                  size="small" variant="outlined" color="warning"
+                                  disabled={revokeId === lr._id}
+                                  sx={{ textTransform: 'none', fontWeight: 600, borderRadius: 2, color: '#d97706', borderColor: '#d97706', '&:hover': { bgcolor: '#fef9c3', borderColor: '#d97706' } }}
+                                  onClick={() => { setRevokeReasonId(isRevokeOpen ? null : lr._id); setRevokeReason('') }}
+                                >
+                                  Revoke
+                                </Button>
+                              )}
+                            </Box>
+                            {isRevokeOpen && (
+                              <Box sx={{ mt: 2, display: 'flex', gap: 1.5, alignItems: 'flex-start' }}>
+                                <TextField
+                                  size="small" fullWidth placeholder="Reason for revocation (optional)"
+                                  value={revokeReason}
+                                  onChange={e => setRevokeReason(e.target.value)}
+                                  sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+                                />
+                                <Button
+                                  variant="contained" size="small"
+                                  disabled={revokeId === lr._id}
+                                  sx={{ textTransform: 'none', fontWeight: 600, flexShrink: 0, bgcolor: '#d97706', '&:hover': { bgcolor: '#b45309' } }}
+                                  onClick={() => handleRevokeLeave(lr._id)}
+                                >
+                                  {revokeId === lr._id ? <CircularProgress size={16} sx={{ color: '#fff' }} /> : 'Confirm Revoke'}
+                                </Button>
+                              </Box>
+                            )}
+                          </Paper>
+                        )
+                      })}
+                    </Box>
+                  )}
+                </Box>
+              )}
+            </Box>
+          )}
+
           {/* ── SHIFT SWAPS PANEL — shown when "Shift Swaps" nav item is active ── */}
           {activeNav === "Shift Swaps" && (
             <Box>
@@ -1034,7 +1520,7 @@ export default function ManagerDashboard() {
                   <Typography variant="body2" color="text.disabled" mt={0.5}>Your team is all caught up.</Typography>
                 </Paper>
               ) : (
-                <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                <Box sx={{ display: "flex", flexDirection: "column", gap: 2, maxHeight: 420, overflowY: "auto", pr: 0.5 }}>
                   {pendingSwaps.map((swap) => (
                     <Paper key={swap.id} elevation={0} sx={{ border: "1px solid #e5e7eb", borderRadius: 3, p: 3 }}>
                       <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 2 }}>
@@ -1120,11 +1606,83 @@ export default function ManagerDashboard() {
                   </Button>
                 </Box>
               </Paper>
+
+              {/* ── Site Locations — each entry is a geo-fence point for GPS clock-in/out ── */}
+              <Paper elevation={0} sx={{ border: "1px solid #e5e7eb", borderRadius: 3, p: 4, mt: 3 }}>
+                <Typography variant="h6" fontWeight={700} color={BLUE} sx={{ mb: 0.5 }}>Site Locations</Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                  Staff can clock in and out from any of these locations. Add one per physical site.
+                </Typography>
+
+                {/* Existing locations as deletable chips */}
+                <Box sx={{ display: "flex", flexDirection: "column", gap: 1, mb: 3 }}>
+                  {orgLocations.length === 0
+                    ? <Typography variant="body2" color="text.disabled">No locations configured yet.</Typography>
+                    : orgLocations.map(loc => (
+                      <Box key={loc._id} sx={{ display: "flex", alignItems: "center", justifyContent: "space-between",
+                        border: "1px solid #e5e7eb", borderRadius: 2, px: 2, py: 1 }}>
+                        <Box>
+                          <Typography variant="body2" fontWeight={700} color={BLUE}>{loc.name}</Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {loc.lat.toFixed(5)}, {loc.lng.toFixed(5)}
+                          </Typography>
+                        </Box>
+                        <Button
+                          size="small" color="error" variant="outlined"
+                          sx={{ textTransform: "none", fontWeight: 600, borderRadius: 2, minWidth: 0, px: 1.5 }}
+                          onClick={() => handleRemoveLocation(loc._id)}
+                        >
+                          <DeleteIcon sx={{ fontSize: 16 }} />
+                        </Button>
+                      </Box>
+                    ))
+                  }
+                </Box>
+
+                {/* Add new location form */}
+                <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
+                  <Box sx={{ display: "flex", gap: 1.5 }}>
+                    <TextField
+                      size="small" placeholder="Site name (e.g. Warehouse)" value={locationName}
+                      onChange={e => setLocationName(e.target.value)}
+                      sx={{ flex: 2, '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+                    />
+                    <TextField
+                      size="small" placeholder="Latitude" value={locationLat}
+                      onChange={e => setLocationLat(e.target.value)}
+                      sx={{ flex: 1, '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+                    />
+                    <TextField
+                      size="small" placeholder="Longitude" value={locationLng}
+                      onChange={e => setLocationLng(e.target.value)}
+                      sx={{ flex: 1, '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+                    />
+                  </Box>
+                  <Box sx={{ display: "flex", gap: 1.5 }}>
+                    <Button
+                      variant="outlined" size="small"
+                      onClick={useCurrentGPSForLocation}
+                      sx={{ textTransform: "none", fontWeight: 600, borderRadius: 2, whiteSpace: "nowrap", color: BLUE, borderColor: BLUE }}
+                    >
+                      Use my GPS
+                    </Button>
+                    <Button
+                      variant="contained" size="small"
+                      startIcon={locationsSaving ? <CircularProgress size={14} color="inherit" /> : <AddIcon />}
+                      onClick={handleAddLocation}
+                      disabled={locationsSaving || !locationName.trim() || !locationLat || !locationLng}
+                      sx={{ bgcolor: ACCENT, textTransform: "none", fontWeight: 600, borderRadius: 2 }}
+                    >
+                      Add Location
+                    </Button>
+                  </Box>
+                </Box>
+              </Paper>
             </Box>
           )}
 
-          {/* ── OVERVIEW (default) — shown for all nav items except Settings, Shift Swaps, and Cover Requests ── */}
-          {activeNav !== "Settings" && activeNav !== "Shift Swaps" && activeNav !== "Cover Requests" && <>
+          {/* ── OVERVIEW (default) — shown for all nav items except Settings, Shift Swaps, Cover Requests, and Leave Requests ── */}
+          {activeNav !== "Settings" && activeNav !== "Shift Swaps" && activeNav !== "Cover Requests" && activeNav !== "Leave Requests" && <>
 
           {/* Page header with quick-action buttons */}
           <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 3 }}>
@@ -1205,7 +1763,7 @@ export default function ManagerDashboard() {
               {pendingSwaps.length === 0 ? (
                 <Typography variant="body2" color="text.secondary">No pending swap requests.</Typography>
               ) : (
-                <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
+                <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5, maxHeight: 260, overflowY: "auto", pr: 0.5 }}>
                   {pendingSwaps.map((swap) => (
                     <Box key={swap.id} sx={{ p: 2, border: "1px solid #e5e7eb", borderRadius: 2, display: "flex", justifyContent: "space-between", alignItems: "center", bgcolor: "#f9fafb" }}>
                       <Box>
@@ -1266,6 +1824,114 @@ export default function ManagerDashboard() {
             )}
           </Box>
 
+          {/* Clocked In Today panel — who has clocked in, at what time */}
+          <Paper elevation={0} sx={{ border: "1px solid #86efac", borderRadius: 3, p: 3, mb: 3, bgcolor: "#f0fdf4" }}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: todayLedger.length > 0 ? 2.5 : 0 }}>
+              <Box sx={{ bgcolor: "#16a34a", borderRadius: 2, p: 0.75, display: "flex" }}>
+                <AccessTimeIcon sx={{ color: "#fff", fontSize: 20 }} />
+              </Box>
+              <Box sx={{ flex: 1 }}>
+                <Typography variant="subtitle1" fontWeight={700} color="#15803d">Clocked In Today</Typography>
+                <Typography variant="caption" color="#166534">
+                  {todayLedger.length === 0
+                    ? "No staff have clocked in yet."
+                    : `${todayLedger.length} staff member${todayLedger.length !== 1 ? 's' : ''} clocked in`}
+                </Typography>
+              </Box>
+              {todayLedger.length > 0 && (
+                <Chip
+                  label={`${todayLedger.filter(r => !r.timeClockedOut).length} active`}
+                  size="small"
+                  sx={{ bgcolor: "#dcfce7", color: "#15803d", fontWeight: 700, fontSize: 11 }}
+                />
+              )}
+            </Box>
+            {todayLedger.length > 0 && (
+              <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr", lg: "1fr 1fr 1fr" }, gap: 1.5 }}>
+                {todayLedger.map(row => {
+                  const isActive = !row.timeClockedOut
+                  const clockInId = String(row._id)
+                  const isConfirming = resetConfirmId === clockInId
+                  const isResetting  = resettingId === clockInId
+                  return (
+                    <Box key={clockInId} sx={{
+                      bgcolor: "#fff", border: `1px solid ${isConfirming ? "#fca5a5" : "#bbf7d0"}`,
+                      borderRadius: 2, p: 2, display: "flex", flexDirection: "column", gap: 1.25,
+                      transition: "border-color 0.15s",
+                    }}>
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                        <Avatar sx={{ width: 36, height: 36, bgcolor: isActive ? "#16a34a" : "#9ca3af", fontSize: 14, flexShrink: 0 }}>
+                          {row.name[0]}
+                        </Avatar>
+                        <Box sx={{ minWidth: 0, flex: 1 }}>
+                          <Typography variant="body2" fontWeight={700} color={BLUE} noWrap>{row.name}</Typography>
+                          <Typography variant="caption" color="text.secondary" noWrap>{row.role}</Typography>
+                          <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mt: 0.25, flexWrap: "wrap" }}>
+                            <Typography variant="caption" sx={{ color: "#15803d", fontWeight: 600 }}>
+                              In: {row.timeClockedIn}
+                            </Typography>
+                            {row.timeClockedOut && (
+                              <Typography variant="caption" color="text.secondary">
+                                · Out: {row.timeClockedOut}
+                              </Typography>
+                            )}
+                          </Box>
+                        </Box>
+                        <Box sx={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 0.5, flexShrink: 0 }}>
+                          <Chip
+                            label={isActive ? "Active" : "Done"}
+                            size="small"
+                            sx={{
+                              bgcolor: isActive ? "#dcfce7" : "#f3f4f6",
+                              color: isActive ? "#15803d" : "#6b7280",
+                              fontWeight: 700, fontSize: 10,
+                            }}
+                          />
+                          {/* Reset button — opens inline confirmation */}
+                          {!isConfirming && (
+                            <Tooltip title="Reset clock-in so staff can re-clock">
+                              <IconButton
+                                size="small"
+                                onClick={() => setResetConfirmId(clockInId)}
+                                sx={{ color: "#6b7280", p: 0.4, '&:hover': { color: "#dc2626", bgcolor: "#fef2f2" } }}
+                              >
+                                <RestartAltIcon sx={{ fontSize: 16 }} />
+                              </IconButton>
+                            </Tooltip>
+                          )}
+                        </Box>
+                      </Box>
+
+                      {/* Inline confirmation row — appears when the reset icon is clicked */}
+                      {isConfirming && (
+                        <Box sx={{ display: "flex", alignItems: "center", gap: 1, pt: 0.5, borderTop: "1px solid #fee2e2" }}>
+                          <Typography variant="caption" sx={{ flex: 1, color: "#dc2626", fontWeight: 600 }}>
+                            Reset this clock-in?
+                          </Typography>
+                          <Button
+                            size="small" variant="contained" disabled={isResetting}
+                            startIcon={isResetting ? <CircularProgress size={12} color="inherit" /> : <RestartAltIcon sx={{ fontSize: 14 }} />}
+                            sx={{ bgcolor: "#dc2626", "&:hover": { bgcolor: "#b91c1c" }, textTransform: "none", fontWeight: 600, fontSize: 11, py: 0.4, px: 1.25, minWidth: 0 }}
+                            onClick={() => handleResetClockIn(clockInId)}
+                          >
+                            {isResetting ? "Resetting…" : "Yes, Reset"}
+                          </Button>
+                          <Button
+                            size="small" variant="outlined"
+                            sx={{ textTransform: "none", fontWeight: 600, fontSize: 11, py: 0.4, px: 1.25, minWidth: 0, color: "#6b7280", borderColor: "#d1d5db" }}
+                            onClick={() => setResetConfirmId(null)}
+                          >
+                            Cancel
+                          </Button>
+                        </Box>
+                      )}
+                    </Box>
+                  )
+                })}
+              </Box>
+            )}
+          </Paper>
+
           {/* Shift Request Approvals panel — staff-initiated requests to work a specific day */}
           <Paper elevation={0} sx={{ border: "1px solid #e5e7eb", borderRadius: 3, p: 3, mb: 3 }}>
             <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 2 }}>
@@ -1279,7 +1945,7 @@ export default function ManagerDashboard() {
             {pendingShiftRequests.length === 0 ? (
               <Typography variant="body2" color="text.secondary">No pending shift requests.</Typography>
             ) : (
-              <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              <Box sx={{ display: "flex", flexDirection: "column", gap: 2, maxHeight: 440, overflowY: "auto", pr: 0.5 }}>
                 {pendingShiftRequests.map((req) => {
                   const isAgreed = req.status === 'staff_agreed';
                   const times = requestTimes[req._id] || {};

@@ -28,6 +28,9 @@ import StorefrontIcon       from '@mui/icons-material/Storefront'
 import EventNoteIcon        from '@mui/icons-material/EventNote'
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline'
 import CancelOutlinedIcon   from '@mui/icons-material/CancelOutlined'
+import BeachAccessIcon        from '@mui/icons-material/BeachAccess'
+import EventAvailableIcon     from '@mui/icons-material/EventAvailable'
+import { MenuItem, Select, FormControl, InputLabel, Modal, Switch, Tooltip } from '@mui/material'
 
 function timeAgo(date) {
   const diff = Math.floor((Date.now() - new Date(date)) / 1000)
@@ -35,6 +38,22 @@ function timeAgo(date) {
   if (diff < 3600)  return `${Math.floor(diff / 60)}m ago`
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`
   return `${Math.floor(diff / 86400)}d ago`
+}
+
+// Returns remaining time until shift end, or overtime if already past it.
+// endOfShift is "HH:MM"; handles midnight-crossing shifts (e.g. "00:30").
+function shiftTimeRemaining(endOfShift, now) {
+  if (!endOfShift) return null
+  const [h, m] = endOfShift.split(':').map(Number)
+  const end = new Date(now)
+  end.setHours(h, m, 0, 0)
+  // If end appears to be earlier than now by more than 12 hours it's tomorrow
+  if (end < now && now - end > 12 * 60 * 60 * 1000) end.setDate(end.getDate() + 1)
+  const diffMs = end - now
+  const abs = Math.abs(diffMs)
+  const rh = Math.floor(abs / 3_600_000)
+  const rm = Math.floor((abs % 3_600_000) / 60_000)
+  return { overtime: diffMs < 0, h: rh, m: rm }
 }
 
 // Brand colour tokens
@@ -50,7 +69,9 @@ const NAV_ITEMS = [
   { icon: <ExitToAppIcon      fontSize="small" />, label: 'Clock Out'   },
   { icon: <SwapHorizIcon      fontSize="small" />, label: 'Shift Swap'  },
   { icon: <StorefrontIcon     fontSize="small" />, label: 'Marketplace' },
-  { icon: <FaceIcon           fontSize="small" />, label: 'Face Enrol'  },
+  { icon: <BeachAccessIcon    fontSize="small" />, label: 'Leave'        },
+  { icon: <EventAvailableIcon fontSize="small" />, label: 'Availability' },
+  { icon: <FaceIcon           fontSize="small" />, label: 'Face Enrol'   },
 ]
 
 // Quick-action cards rendered in the main content area
@@ -117,6 +138,39 @@ function Dashboard() {
   // Tracks which shift card is mid-claim to show per-card loading
   const [claimingId, setClaimingId]           = useState(null)
 
+  // Availability state — weekly grid + specific date overrides
+  const DAYS = [
+    { label: 'Monday',    dow: 1 },
+    { label: 'Tuesday',   dow: 2 },
+    { label: 'Wednesday', dow: 3 },
+    { label: 'Thursday',  dow: 4 },
+    { label: 'Friday',    dow: 5 },
+    { label: 'Saturday',  dow: 6 },
+    { label: 'Sunday',    dow: 0 },
+  ]
+  // weeklyGrid: { [dayOfWeek]: { available, startTime, endTime, saving } }
+  const [weeklyGrid, setWeeklyGrid]               = useState({})
+  // dateOverrides: list of { date, available, startTime, endTime } entries
+  const [dateOverrides, setDateOverrides]         = useState([])
+  const [availLoading, setAvailLoading]           = useState(false)
+  // New date override form state
+  const [newOverrideDate, setNewOverrideDate]     = useState('')
+  const [newOverrideStart, setNewOverrideStart]   = useState('')
+  const [newOverrideEnd, setNewOverrideEnd]       = useState('')
+  const [overrideAdding, setOverrideAdding]       = useState(false)
+
+  // Leave request form and history state
+  const [leaveRequests, setLeaveRequests]         = useState([])
+  const [leaveLoading, setLeaveLoading]           = useState(false)
+  const [leaveModalOpen, setLeaveModalOpen]       = useState(false)
+  const [leaveForm, setLeaveForm]                 = useState({ leaveType: 'annual', startDate: '', endDate: '', notes: '' })
+  const [leaveSubmitting, setLeaveSubmitting]     = useState(false)
+
+  // Today's clock-in record for this staff member — null means not yet clocked in
+  const [todayClockIn, setTodayClockIn] = useState(null)
+  // Current time, ticked every minute to drive the shift-end countdown
+  const [now, setNow] = useState(new Date())
+
   // Whether the floating AI chat panel is open
   const [chatOpen, setChatOpen]       = useState(false)
   // Message thread for the AI shift assistant chat
@@ -152,6 +206,8 @@ function Dashboard() {
     if (label === 'Shift Swap')   navigate('/staff-swap')
     if (label === 'Face Enrol')   navigate('/face-enroll')
     if (label === 'Marketplace')  fetchOpenShifts()
+    if (label === 'Leave')        fetchLeaveRequests()
+    if (label === 'Availability') fetchAvailability()
   }
 
   // Verifies the stored JWT against the backend and loads the user profile
@@ -172,6 +228,19 @@ function Dashboard() {
     } catch {
       navigate(`/staff-login?${new URLSearchParams({ message: 'Not Valid, Please Login Again!' })}`)
     }
+  }
+
+  // Checks whether the current staff member has already clocked in today
+  async function fetchTodayClockIn() {
+    try {
+      const res = await apiFetch(`${BASE}/api/my-clockin-today`, {
+        headers: { authorization: `Bearer ${getToken}` }
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setTodayClockIn(data.clockIn || null)
+      }
+    } catch { /* non-critical */ }
   }
 
   // Loads any pending time proposals sent by the manager for this staff member
@@ -250,6 +319,150 @@ function Dashboard() {
     }
   }
 
+  async function fetchAvailability() {
+    setAvailLoading(true)
+    try {
+      const res = await apiFetch(`${BASE}/api/my-availability`, {
+        headers: { authorization: `Bearer ${getToken}` }
+      })
+      if (res.ok) {
+        const data = await res.json()
+        const grid = {}
+        const overrides = []
+        for (const entry of data.entries || []) {
+          if (entry.type === 'weekly') {
+            grid[entry.dayOfWeek] = { available: entry.available, startTime: entry.startTime || '', endTime: entry.endTime || '', saving: false }
+          } else {
+            overrides.push(entry)
+          }
+        }
+        setWeeklyGrid(grid)
+        setDateOverrides(overrides.sort((a, b) => a.date.localeCompare(b.date)))
+      }
+    } catch { /* non-critical */ }
+    finally { setAvailLoading(false) }
+  }
+
+  async function saveWeeklyDay(dow, patch) {
+    const current = weeklyGrid[dow] || { available: true, startTime: '', endTime: '' }
+    const updated = { ...current, ...patch }
+    setWeeklyGrid(prev => ({ ...prev, [dow]: { ...updated, saving: true } }))
+    try {
+      const res = await apiFetch(`${BASE}/api/my-availability`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', authorization: `Bearer ${getToken}` },
+        body: JSON.stringify({
+          type: 'weekly',
+          dayOfWeek: dow,
+          available: updated.available,
+          startTime: updated.available && updated.startTime ? updated.startTime : null,
+          endTime:   updated.available && updated.endTime   ? updated.endTime   : null,
+        })
+      })
+      if (!res.ok) {
+        const d = await res.json()
+        setSnackText(d.message || 'Failed to save')
+        setSnackOpen(true)
+      }
+    } catch {
+      setSnackText('Network error')
+      setSnackOpen(true)
+    } finally {
+      setWeeklyGrid(prev => ({ ...prev, [dow]: { ...prev[dow], saving: false } }))
+    }
+  }
+
+  async function addDateOverride() {
+    if (!newOverrideDate) { setSnackText('Please select a date'); setSnackOpen(true); return }
+    setOverrideAdding(true)
+    try {
+      const res = await apiFetch(`${BASE}/api/my-availability`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', authorization: `Bearer ${getToken}` },
+        body: JSON.stringify({
+          type: 'date',
+          date: newOverrideDate,
+          available: false,
+          startTime: null,
+          endTime: null,
+        })
+      })
+      const data = await res.json()
+      if (res.ok) {
+        setDateOverrides(prev => [...prev, data.entry].sort((a, b) => a.date.localeCompare(b.date)))
+        setNewOverrideDate('')
+        setNewOverrideStart('')
+        setNewOverrideEnd('')
+      } else {
+        setSnackText(data.message || 'Failed to add override')
+        setSnackOpen(true)
+      }
+    } catch {
+      setSnackText('Network error')
+      setSnackOpen(true)
+    } finally { setOverrideAdding(false) }
+  }
+
+  async function removeDateOverride(date) {
+    try {
+      await apiFetch(`${BASE}/api/my-availability/remove`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', authorization: `Bearer ${getToken}` },
+        body: JSON.stringify({ type: 'date', date })
+      })
+      setDateOverrides(prev => prev.filter(e => e.date !== date))
+    } catch {
+      setSnackText('Network error')
+      setSnackOpen(true)
+    }
+  }
+
+  async function fetchLeaveRequests() {
+    setLeaveLoading(true)
+    try {
+      const res = await apiFetch(`${BASE}/api/my-leave-requests`, {
+        headers: { authorization: `Bearer ${getToken}` }
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setLeaveRequests(data.leaves || [])
+      }
+    } catch { /* non-critical */ }
+    finally { setLeaveLoading(false) }
+  }
+
+  async function submitLeaveRequest() {
+    if (!leaveForm.startDate || !leaveForm.endDate) {
+      setSnackText('Please fill in start and end dates')
+      setSnackOpen(true)
+      return
+    }
+    setLeaveSubmitting(true)
+    try {
+      const res = await apiFetch(`${BASE}/api/leave-request`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', authorization: `Bearer ${getToken}` },
+        body: JSON.stringify(leaveForm)
+      })
+      const data = await res.json()
+      if (res.ok) {
+        setLeaveRequests(prev => [data.leave, ...prev])
+        setLeaveModalOpen(false)
+        setLeaveForm({ leaveType: 'annual', startDate: '', endDate: '', notes: '' })
+        setSnackText('Leave request submitted — your manager will review it shortly')
+        setSnackOpen(true)
+      } else {
+        setSnackText(data.message || 'Failed to submit leave request')
+        setSnackOpen(true)
+      }
+    } catch {
+      setSnackText('Network error — please try again')
+      setSnackOpen(true)
+    } finally {
+      setLeaveSubmitting(false)
+    }
+  }
+
   // On mount: show any URL message, then validate auth or redirect to login
   useEffect(() => {
     if (msgFromURL) { setSnackText(msgFromURL); setSnackOpen(true) }
@@ -260,10 +473,18 @@ function Dashboard() {
         if (ok) registerPushNotifications(getToken, 'staff')
       })()
       fetchShiftProposals()
+      fetchTodayClockIn()
     } else {
       navigate(`/staff-login?${new URLSearchParams({ message: 'You Need to Login' })}`)
     }
   }, [])
+
+  // Tick every minute while clocked in so the shift-end countdown stays current
+  useEffect(() => {
+    if (!todayClockIn) return
+    const id = setInterval(() => setNow(new Date()), 60_000)
+    return () => clearInterval(id)
+  }, [todayClockIn])
 
   // Scroll the chat message list to the bottom whenever messages change
   useEffect(() => {
@@ -343,6 +564,47 @@ function Dashboard() {
       })
     })
 
+    socket.on('leave_approved', ({ leaveType, startDate, endDate }) => {
+      const typeLabel = { sick: 'Sick Leave', annual: 'Annual Leave', personal: 'Personal Leave' }[leaveType] || leaveType
+      setLeaveRequests(prev => prev.map(lr =>
+        lr.startDate === startDate && lr.endDate === endDate && lr.leaveType === leaveType && lr.status === 'pending'
+          ? { ...lr, status: 'approved' }
+          : lr
+      ))
+      addNotification({
+        type: 'leave_approved',
+        title: 'Leave Request Approved',
+        body: `Your ${typeLabel} from ${startDate} to ${endDate} has been approved.`,
+        actionData: null
+      })
+    })
+
+    // Manager reset this staff member's clock-in — clear the local banner and notify them
+    socket.on('clockin_reset', ({ message }) => {
+      setTodayClockIn(null)
+      addNotification({
+        type: 'clockin_reset',
+        title: 'Clock-In Reset by Manager',
+        body: message || 'Your manager has reset your clock-in. Please clock in again when you are ready.',
+        actionData: null,
+      })
+    })
+
+    socket.on('leave_denied', ({ leaveType, startDate, endDate, managerNotes }) => {
+      const typeLabel = { sick: 'Sick Leave', annual: 'Annual Leave', personal: 'Personal Leave' }[leaveType] || leaveType
+      setLeaveRequests(prev => prev.map(lr =>
+        lr.startDate === startDate && lr.endDate === endDate && lr.leaveType === leaveType && lr.status === 'pending'
+          ? { ...lr, status: 'denied', managerNotes: managerNotes || null }
+          : lr
+      ))
+      addNotification({
+        type: 'leave_denied',
+        title: 'Leave Request Denied',
+        body: `Your ${typeLabel} from ${startDate} to ${endDate} was not approved.${managerNotes ? ` Reason: ${managerNotes}` : ''}`,
+        actionData: null
+      })
+    })
+
     return () => {
       socket.off('shift_proposal_received')
       socket.off('shift_request_resolved')
@@ -351,6 +613,9 @@ function Dashboard() {
       socket.off('cover_rejected')
       socket.off('swap_approved')
       socket.off('swap_request_received')
+      socket.off('leave_approved')
+      socket.off('leave_denied')
+      socket.off('clockin_reset')
     }
   }, [currentUser?._id])
 
@@ -583,6 +848,9 @@ function Dashboard() {
                       shift_denied:            { icon: <CancelOutlinedIcon sx={{ fontSize: 18 }} />,      color: '#dc2626', bg: '#fef2f2' },
                       cover_approved:          { icon: <CheckCircleOutlineIcon sx={{ fontSize: 18 }} />,  color: '#16a34a', bg: '#f0fdf4' },
                       cover_rejected:          { icon: <CancelOutlinedIcon sx={{ fontSize: 18 }} />,      color: '#dc2626', bg: '#fef2f2' },
+                      leave_approved:          { icon: <BeachAccessIcon sx={{ fontSize: 18 }} />,         color: '#16a34a', bg: '#f0fdf4' },
+                      leave_denied:            { icon: <BeachAccessIcon sx={{ fontSize: 18 }} />,         color: '#dc2626', bg: '#fef2f2' },
+                      clockin_reset:           { icon: <AccessTimeIcon sx={{ fontSize: 18 }} />,          color: '#d97706', bg: '#fffbeb' },
                     }
                     const { icon, color, bg } = iconMap[notif.type] || { icon: <NotificationsIcon sx={{ fontSize: 18 }} />, color: '#6b7280', bg: '#f9fafb' }
 
@@ -698,6 +966,45 @@ function Dashboard() {
               {/* Decorative concentric circle shapes in the background */}
               <Box sx={{ position: 'absolute', right: -24, top: '50%', transform: 'translateY(-50%)', width: 130, height: 130, borderRadius: '50%', border: '2px solid rgba(255,255,255,0.1)', pointerEvents: 'none' }} />
               <Box sx={{ position: 'absolute', right: -52, top: '50%', transform: 'translateY(-50%)', width: 190, height: 190, borderRadius: '50%', border: '2px solid rgba(255,255,255,0.06)', pointerEvents: 'none' }} />
+            </Box>
+          )}
+
+          {/* Clock-in status banner — shown only on the Overview when clocked in today */}
+          {activeNav === 'Overview' && todayClockIn && (
+            <Box sx={{
+              bgcolor: '#f0fdf4', border: '1px solid #86efac', borderRadius: 3, p: 3, mb: 3,
+              display: 'flex', alignItems: 'center', gap: 2,
+            }}>
+              <Box sx={{ bgcolor: '#16a34a', borderRadius: 2, p: 1, display: 'flex', flexShrink: 0 }}>
+                <AccessTimeIcon sx={{ color: '#fff', fontSize: 22 }} />
+              </Box>
+              <Box sx={{ flex: 1 }}>
+                <Typography variant="subtitle2" fontWeight={700} color="#15803d">
+                  You're clocked in for today
+                </Typography>
+                <Typography variant="body2" color="#166534">
+                  Clocked in at <strong>{todayClockIn.timeClockedIn}</strong>
+                  {todayClockIn.isLate && (
+                    <Box component="span" sx={{ ml: 1, color: '#d97706', fontWeight: 600 }}>(Late)</Box>
+                  )}
+                </Typography>
+                {(() => {
+                  const rem = shiftTimeRemaining(todayClockIn.endOfShift, now)
+                  if (!rem) return null
+                  if (rem.overtime) {
+                    return (
+                      <Typography variant="body2" sx={{ mt: 0.5, color: '#dc2626', fontWeight: 600 }}>
+                        {rem.h > 0 ? `${rem.h}h ${rem.m}m` : `${rem.m}m`} overtime — clock out when ready
+                      </Typography>
+                    )
+                  }
+                  return (
+                    <Typography variant="body2" sx={{ mt: 0.5, color: '#166534' }}>
+                      {rem.h > 0 ? `${rem.h}h ${rem.m}m` : `${rem.m}m`} remaining until {todayClockIn.endOfShift}
+                    </Typography>
+                  )
+                })()}
+              </Box>
             </Box>
           )}
 
@@ -860,6 +1167,233 @@ function Dashboard() {
               )}
             </Paper>
           )}
+
+          {/* ── AVAILABILITY PANEL ── shown when staff clicks the Availability nav item */}
+          {activeNav === 'Availability' && (
+            <Paper elevation={0} sx={{ border: '1px solid #e5e7eb', borderRadius: 3, p: 3, mb: 3 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 3 }}>
+                <EventAvailableIcon sx={{ color: ACCENT, fontSize: 22 }} />
+                <Box>
+                  <Typography variant="subtitle1" fontWeight={700} color={BLUE}>My Availability</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Set when you can work. Smart Match and roster scheduling will respect these settings.
+                  </Typography>
+                </Box>
+              </Box>
+
+              {availLoading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularProgress size={28} /></Box>
+              ) : (
+                <>
+                  {/* ── Weekly recurring grid ── */}
+                  <Typography variant="subtitle2" fontWeight={700} color={BLUE} mb={1.5}>Weekly Pattern</Typography>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25, mb: 3 }}>
+                    {DAYS.map(({ label, dow }) => {
+                      const entry = weeklyGrid[dow] ?? { available: true, startTime: '', endTime: '' }
+                      return (
+                        <Box key={dow} sx={{
+                          display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap',
+                          border: '1px solid #e5e7eb', borderRadius: 2, px: 2, py: 1.25,
+                          bgcolor: entry.available ? '#fafafa' : '#fef2f2',
+                          opacity: entry.saving ? 0.6 : 1, transition: 'opacity 0.2s',
+                        }}>
+                          <Typography variant="body2" fontWeight={600} color={BLUE} sx={{ width: 100, flexShrink: 0 }}>
+                            {label}
+                          </Typography>
+                          <Tooltip title={entry.available ? 'Click to mark unavailable' : 'Click to mark available'}>
+                            <Switch
+                              size="small"
+                              checked={entry.available}
+                              onChange={e => saveWeeklyDay(dow, { available: e.target.checked })}
+                              disabled={entry.saving}
+                              sx={{ '& .MuiSwitch-thumb': { bgcolor: entry.available ? '#16a34a' : '#dc2626' } }}
+                            />
+                          </Tooltip>
+                          {entry.available ? (
+                            <>
+                              <TextField
+                                size="small" type="time" label="From"
+                                value={entry.startTime || ''}
+                                onChange={e => setWeeklyGrid(prev => ({ ...prev, [dow]: { ...prev[dow], startTime: e.target.value } }))}
+                                onBlur={() => saveWeeklyDay(dow, { startTime: entry.startTime })}
+                                slotProps={{ inputLabel: { shrink: true } }}
+                                sx={{ width: 130 }}
+                              />
+                              <TextField
+                                size="small" type="time" label="To"
+                                value={entry.endTime || ''}
+                                onChange={e => setWeeklyGrid(prev => ({ ...prev, [dow]: { ...prev[dow], endTime: e.target.value } }))}
+                                onBlur={() => saveWeeklyDay(dow, { endTime: entry.endTime })}
+                                slotProps={{ inputLabel: { shrink: true } }}
+                                sx={{ width: 130 }}
+                              />
+                              <Typography variant="caption" color="text.secondary">
+                                {entry.startTime && entry.endTime ? `${entry.startTime} – ${entry.endTime}` : 'All day'}
+                              </Typography>
+                            </>
+                          ) : (
+                            <Typography variant="caption" sx={{ color: '#dc2626', fontWeight: 600 }}>Unavailable</Typography>
+                          )}
+                        </Box>
+                      )
+                    })}
+                  </Box>
+
+                  {/* ── Specific date overrides ── */}
+                  <Typography variant="subtitle2" fontWeight={700} color={BLUE} mb={1}>Specific Date Overrides</Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+                    Mark a single date as unavailable regardless of your weekly pattern.
+                  </Typography>
+                  <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center', mb: 2, flexWrap: 'wrap' }}>
+                    <TextField
+                      size="small" type="date" label="Date"
+                      slotProps={{ inputLabel: { shrink: true } }}
+                      value={newOverrideDate}
+                      onChange={e => setNewOverrideDate(e.target.value)}
+                      sx={{ width: 170 }}
+                    />
+                    <Button
+                      variant="contained" size="small" disabled={overrideAdding || !newOverrideDate}
+                      sx={{ bgcolor: '#dc2626', textTransform: 'none', fontWeight: 600, '&:hover': { bgcolor: '#b91c1c' } }}
+                      onClick={addDateOverride}
+                    >
+                      {overrideAdding ? <CircularProgress size={16} sx={{ color: '#fff' }} /> : 'Mark Unavailable'}
+                    </Button>
+                  </Box>
+                  {dateOverrides.length === 0 ? (
+                    <Typography variant="caption" color="text.secondary">No specific date overrides set.</Typography>
+                  ) : (
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                      {dateOverrides.map(e => (
+                        <Chip
+                          key={e.date}
+                          label={e.date}
+                          onDelete={() => removeDateOverride(e.date)}
+                          size="small"
+                          sx={{ bgcolor: '#fef2f2', color: '#dc2626', fontWeight: 600, '& .MuiChip-deleteIcon': { color: '#dc2626' } }}
+                        />
+                      ))}
+                    </Box>
+                  )}
+                </>
+              )}
+            </Paper>
+          )}
+
+          {/* ── LEAVE PANEL ── shown when staff clicks the Leave nav item */}
+          {activeNav === 'Leave' && (
+            <Paper elevation={0} sx={{ border: '1px solid #e5e7eb', borderRadius: 3, p: 3, mb: 3 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2.5 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                  <BeachAccessIcon sx={{ color: ACCENT, fontSize: 22 }} />
+                  <Typography variant="subtitle1" fontWeight={700} color={BLUE}>My Leave Requests</Typography>
+                </Box>
+                <Button
+                  variant="contained" size="small"
+                  sx={{ bgcolor: ACCENT, textTransform: 'none', fontWeight: 600, borderRadius: 2, '&:hover': { bgcolor: '#1d4ed8' } }}
+                  onClick={() => setLeaveModalOpen(true)}
+                >
+                  + Request Leave
+                </Button>
+              </Box>
+
+              {leaveLoading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                  <CircularProgress size={28} />
+                </Box>
+              ) : leaveRequests.length === 0 ? (
+                <Box sx={{ textAlign: 'center', py: 5 }}>
+                  <BeachAccessIcon sx={{ fontSize: 44, color: '#d1d5db', mb: 1 }} />
+                  <Typography variant="body2" color="text.secondary">No leave requests yet.</Typography>
+                  <Typography variant="caption" color="text.secondary">Submit a request to notify your manager.</Typography>
+                </Box>
+              ) : (
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                  {leaveRequests.map(lr => {
+                    const statusColor = lr.status === 'approved' ? '#16a34a' : lr.status === 'denied' ? '#dc2626' : '#d97706'
+                    const statusBg    = lr.status === 'approved' ? '#f0fdf4'  : lr.status === 'denied' ? '#fef2f2'  : '#fffbeb'
+                    const typeLabel   = { sick: 'Sick Leave', annual: 'Annual Leave', personal: 'Personal Leave' }[lr.leaveType] || lr.leaveType
+                    return (
+                      <Box key={lr._id} sx={{ border: '1px solid #e5e7eb', borderRadius: 2, p: 2, bgcolor: '#fafafa' }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 0.75 }}>
+                          <Typography variant="body2" fontWeight={700} color={BLUE}>{typeLabel}</Typography>
+                          <Chip
+                            label={lr.status.charAt(0).toUpperCase() + lr.status.slice(1)}
+                            size="small"
+                            sx={{ bgcolor: statusBg, color: statusColor, fontWeight: 700, fontSize: 11 }}
+                          />
+                        </Box>
+                        <Typography variant="caption" color="text.secondary">
+                          {lr.startDate} → {lr.endDate}
+                        </Typography>
+                        {lr.notes && (
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
+                            Your note: {lr.notes}
+                          </Typography>
+                        )}
+                        {lr.managerNotes && (
+                          <Typography variant="caption" sx={{ display: 'block', mt: 0.25, color: '#dc2626' }}>
+                            Manager: {lr.managerNotes}
+                          </Typography>
+                        )}
+                      </Box>
+                    )
+                  })}
+                </Box>
+              )}
+            </Paper>
+          )}
+
+          {/* ── LEAVE REQUEST MODAL ── */}
+          <Modal open={leaveModalOpen} onClose={() => setLeaveModalOpen(false)}>
+            <Box sx={{
+              position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+              width: 440, bgcolor: '#fff', borderRadius: 3, p: 4, boxShadow: 24, outline: 'none'
+            }}>
+              <Typography variant="h6" fontWeight={700} color={BLUE} mb={2.5}>Request Leave</Typography>
+              <FormControl fullWidth size="small" sx={{ mb: 2 }}>
+                <InputLabel>Leave Type</InputLabel>
+                <Select
+                  value={leaveForm.leaveType}
+                  label="Leave Type"
+                  onChange={e => setLeaveForm(f => ({ ...f, leaveType: e.target.value }))}
+                >
+                  <MenuItem value="annual">Annual Leave</MenuItem>
+                  <MenuItem value="sick">Sick Leave</MenuItem>
+                  <MenuItem value="personal">Personal Leave</MenuItem>
+                </Select>
+              </FormControl>
+              <TextField
+                fullWidth size="small" label="Start Date" type="date" sx={{ mb: 2 }}
+                slotProps={{ inputLabel: { shrink: true } }}
+                value={leaveForm.startDate}
+                onChange={e => setLeaveForm(f => ({ ...f, startDate: e.target.value }))}
+              />
+              <TextField
+                fullWidth size="small" label="End Date" type="date" sx={{ mb: 2 }}
+                slotProps={{ inputLabel: { shrink: true } }}
+                value={leaveForm.endDate}
+                onChange={e => setLeaveForm(f => ({ ...f, endDate: e.target.value }))}
+              />
+              <TextField
+                fullWidth size="small" label="Notes (optional)" multiline rows={3} sx={{ mb: 3 }}
+                value={leaveForm.notes}
+                onChange={e => setLeaveForm(f => ({ ...f, notes: e.target.value }))}
+              />
+              <Box sx={{ display: 'flex', gap: 1.5, justifyContent: 'flex-end' }}>
+                <Button variant="outlined" sx={{ textTransform: 'none' }} onClick={() => setLeaveModalOpen(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="contained" disabled={leaveSubmitting}
+                  sx={{ bgcolor: ACCENT, textTransform: 'none', fontWeight: 600, '&:hover': { bgcolor: '#1d4ed8' } }}
+                  onClick={submitLeaveRequest}
+                >
+                  {leaveSubmitting ? <CircularProgress size={18} sx={{ color: '#fff' }} /> : 'Submit Request'}
+                </Button>
+              </Box>
+            </Box>
+          </Modal>
 
           {/* Profile summary card at the bottom of the main content area */}
           <Paper elevation={0} sx={{ border: '1px solid #e5e7eb', borderRadius: 3, p: 3 }}>

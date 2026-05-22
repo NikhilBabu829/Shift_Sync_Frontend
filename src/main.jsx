@@ -16,6 +16,9 @@ import ClockOut from './components/ClockOut'
 import FaceEnroll from './pages/FaceEnroll'
 import Register from './pages/Register'
 import ManagerRoster from './pages/ManagerRoster'
+import StaffRoster from './pages/StaffRoster'
+import AcceptSwap from './pages/AcceptSwap'
+import DeclineSwap from './pages/DeclineSwap'
 
 // Global MUI theme — defines brand colours, background palette and font stack
 const theme = createTheme({
@@ -80,6 +83,18 @@ const router = createBrowserRouter([
   {
     path: "/face-enroll",
     element: <FaceEnroll />
+  },
+  {
+    path: "/my-roster",
+    element: <StaffRoster />
+  },
+  {
+    path: "/accept-swap/:id",
+    element: <AcceptSwap />
+  },
+  {
+    path: "/decline-swap/:id",
+    element: <DeclineSwap />
   }
 ])
 

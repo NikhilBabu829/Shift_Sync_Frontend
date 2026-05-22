@@ -8,9 +8,10 @@ import { Avatar, IconButton, Menu, MenuItem, Tooltip } from '@mui/material'
 
 // Navigation options available to a logged-in staff member
 const MENU_ITEMS = [
-    { label: "Clock-In",  path: "/staff-clock-in" },
-    { label: "Clock-Out", path: "/staff-clock-out" },
-    { label: "Logout",    path: null }, // path is null — handled programmatically
+    { label: "My Schedule", path: "/my-roster" },
+    { label: "Clock-In",    path: "/staff-clock-in" },
+    { label: "Clock-Out",   path: "/staff-clock-out" },
+    { label: "Logout",      path: null }, // path is null — handled programmatically
 ]
 
 // Top app bar for staff-facing pages; receives the staff user object as a prop

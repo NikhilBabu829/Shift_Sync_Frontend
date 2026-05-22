@@ -25,8 +25,10 @@ export default function ClockOut() {
 
     // Authenticated staff profile loaded on mount
     const [currentUser, setCurrentUser] = useState(null)
-    // Organisation HQ lat/lng used for the geo-fence check
+    // Organisation HQ lat/lng (legacy fallback) used for the geo-fence check
     const [orgCoords, setOrgCoords] = useState(null)
+    // Array of named site locations for multi-site geo-fencing; falls back to orgCoords if empty
+    const [orgLocations, setOrgLocations] = useState([])
     // Organisation display name shown in the location chip
     const [orgName, setOrgName] = useState('')
     // The shift type the staff member selects before clocking out
@@ -59,7 +61,7 @@ export default function ClockOut() {
         return false
     }
 
-    // Fetches the organisation's HQ coordinates and name for the geo-fence check
+    // Fetches organisation config including all site locations for geo-fencing
     async function fetchOrgConfig() {
         try {
             const res = await apiFetch(`${BASE}/api/org-config`, {
@@ -68,6 +70,7 @@ export default function ClockOut() {
             if (res.ok) {
                 const data = await res.json()
                 setOrgCoords(data.hq_coordinates)
+                setOrgLocations(data.locations || [])
                 setOrgName(data.org_name)
             } else {
                 showSnack('Could not load organisation location. Contact your manager.', 'warning')
@@ -123,8 +126,12 @@ export default function ClockOut() {
     // Main clock-out handler: collects GPS polls, runs spoof and geo-fence checks, validates a prior clock-in, then posts to backend
     async function handleClockOut(e) {
         e.preventDefault()
-        if (!orgCoords?.lat || !orgCoords?.lng) {
-            showSnack('Organisation HQ coordinates not set. Contact your manager.', 'error')
+        // Build effective site list: prefer named locations array, fall back to legacy HQ coord
+        const effectiveLocations = orgLocations.length > 0
+            ? orgLocations
+            : (orgCoords?.lat && orgCoords?.lng ? [{ name: 'HQ', ...orgCoords }] : [])
+        if (effectiveLocations.length === 0) {
+            showSnack('No site locations configured. Contact your manager.', 'error')
             return
         }
 
@@ -188,14 +195,15 @@ export default function ClockOut() {
             return
         }
 
-        // Geo-fence check (±0.01° wider tolerance for clock-out)
+        // Geo-fence check (±0.01° wider tolerance for clock-out): must be within any site location
         const tolerance = 0.01
-        const withinLat = latitude >= orgCoords.lat - tolerance && latitude <= orgCoords.lat + tolerance
-        const withinLng = longitude >= orgCoords.lng - tolerance && longitude <= orgCoords.lng + tolerance
-
-        if (!withinLat || !withinLng) {
+        const withinAnySite = effectiveLocations.some(loc =>
+            latitude  >= loc.lat - tolerance && latitude  <= loc.lat + tolerance &&
+            longitude >= loc.lng - tolerance && longitude <= loc.lng + tolerance
+        )
+        if (!withinAnySite) {
             setLoading(false)
-            showSnack('You are outside the work premises. Clock-out is only allowed on-site.', 'error')
+            showSnack('You are outside all work premises. Clock-out is only allowed on-site.', 'error')
             return
         }
 
@@ -311,10 +319,14 @@ export default function ClockOut() {
                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, mb: 3 }}>
                         <LocationOnIcon sx={{ color: BLUE, fontSize: 18 }} />
                         <Typography variant="body2" color="text.secondary">
-                            {orgName || 'Your Organisation'} HQ
+                            {orgName || 'Your Organisation'}
                         </Typography>
-                        {orgCoords?.lat
-                            ? <Chip label="Location set" size="small" sx={{ bgcolor: '#dcfce7', color: '#16a34a', fontWeight: 700, fontSize: 10 }} />
+                        {(orgLocations.length > 0 || orgCoords?.lat)
+                            ? <Chip
+                                label={orgLocations.length > 1 ? `${orgLocations.length} sites` : 'Location set'}
+                                size="small"
+                                sx={{ bgcolor: '#dcfce7', color: '#16a34a', fontWeight: 700, fontSize: 10 }}
+                              />
                             : <Chip label="No location" size="small" sx={{ bgcolor: '#fee2e2', color: '#dc2626', fontWeight: 700, fontSize: 10 }} />
                         }
                     </Box>
@@ -340,7 +352,7 @@ export default function ClockOut() {
                             variant="contained"
                             fullWidth
                             size="large"
-                            disabled={loading || !orgCoords?.lat}
+                            disabled={loading || (orgLocations.length === 0 && !orgCoords?.lat)}
                             sx={{ bgcolor: '#dc2626', py: 1.8, fontWeight: 700, fontSize: 16, borderRadius: 2, textTransform: 'none', '&:hover': { bgcolor: '#b91c1c' } }}
                         >
                             {loading ? <CircularProgress size={22} color="inherit" /> : 'Clock Out'}

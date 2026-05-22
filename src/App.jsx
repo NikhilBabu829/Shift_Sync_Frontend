@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import {
   Box, Button, Container, Typography, Grid, Card, CardContent,
   AppBar, Toolbar, Chip, Avatar, Table, TableBody, TableCell,
@@ -60,8 +59,6 @@ const sampleLedger = [
 // Public landing page — marketing, feature showcase, sample ledger, and CTA
 export default function App() {
   const navigate = useNavigate()
-  // Controls whether the sample ledger table is visible (always true; reserved for future toggle)
-  const [ledgerVisible] = useState(true)
 
   return (
     <Box sx={{ bgcolor: '#f0f4f8', minHeight: '100vh' }}>
@@ -227,9 +224,7 @@ export default function App() {
               Export CSV
             </Button>
           </Box>
-          {/* Render the sample ledger table when visible */}
-          {ledgerVisible && (
-            <TableContainer component={Paper} elevation={0} sx={{ border: '1px solid #e2e8f0', borderRadius: 3 }}>
+          <TableContainer component={Paper} elevation={0} sx={{ border: '1px solid #e2e8f0', borderRadius: 3 }}>
               <Table>
                 <TableHead>
                   <TableRow sx={{ bgcolor: '#f8fafc' }}>
@@ -257,7 +252,6 @@ export default function App() {
                 </TableBody>
               </Table>
             </TableContainer>
-          )}
         </Container>
       </Box>
 
