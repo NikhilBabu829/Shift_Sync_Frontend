@@ -367,6 +367,19 @@ export default function ClockIn() {
             })
             if (res.ok) {
                 const body = await res.json()
+
+                // Weak face match — ask the staff member to re-clock, do not proceed to dashboard
+                if (body.requiresReclock) {
+                    const fv = body.faceVerification
+                    showSnack(
+                        `Face matched but confidence is low (distance: ${fv?.distance?.toFixed(3)}). Please re-position your face and try again.`,
+                        'warning'
+                    )
+                    setLoading(false)
+                    setLoadingStep('')
+                    return
+                }
+
                 // Compose a late/early message based on the diff from shift start
                 const msg = isLate
                     ? `Clocked in — ${diffH}h ${diffMin}m late.`
@@ -377,8 +390,6 @@ export default function ClockIn() {
                 const fv = body.faceVerification
                 if (fv?.registered && fv?.isVerified === true) {
                     showSnack(`Face verified ✓ (distance: ${fv.distance?.toFixed(3)})`, 'success')
-                } else if (fv?.registered && fv?.isVerified === false) {
-                    showSnack(`Face mismatch — distance ${fv.distance?.toFixed(3)} exceeded threshold. Manager notified.`, 'warning')
                 } else if (fv?.registered && fv?.isVerified === null) {
                     showSnack('Face enrolled but no descriptor was captured this session.', 'info')
                 }
@@ -388,7 +399,11 @@ export default function ClockIn() {
                 setTimeout(() => navigate('/dashboard'), 2500)
             } else {
                 const body = await res.json()
-                showSnack(body.message || 'Clock-in failed. Please try again.', 'error')
+                if (body.faceMismatch) {
+                    showSnack('Face verification failed. Your manager has been notified. Clock-in denied.', 'error')
+                } else {
+                    showSnack(body.message || 'Clock-in failed. Please try again.', 'error')
+                }
             }
         } catch {
             showSnack('Could not reach the server. Please try again.', 'error')

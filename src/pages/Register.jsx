@@ -39,6 +39,10 @@ export default function Register() {
   const [roles, setRoles] = useState(['Staff Member', 'Shift Supervisor', 'Manager'])
   // Current value of the role chip input before it is committed on Enter/comma
   const [roleInput, setRoleInput] = useState('')
+  // List of team/department types the organisation supports (e.g. "Kitchen", "Front Desk")
+  const [orgDepartments, setOrgDepartments] = useState([])
+  // Current value of the department chip input before it is committed on Enter/comma
+  const [deptInput, setDeptInput] = useState('')
   // Whether the user has ticked the Terms of Service checkbox
   const [agreed, setAgreed] = useState(false)
   // True while the registration API request is in flight
@@ -88,6 +92,7 @@ export default function Register() {
     if (isNaN(parseFloat(form.hq_lng))) { showSnack('Longitude must be a valid number.'); return }
     if (!agreed) { showSnack('Please agree to the Terms of Service to continue.'); return }
     if (roles.length === 0) { showSnack('Add at least one role for your organisation.'); return }
+    if (orgDepartments.length === 0) { showSnack('Add at least one team/department for your organisation.'); return }
 
     setLoading(true)
     try {
@@ -103,7 +108,8 @@ export default function Register() {
           hq_lat: form.hq_lat,
           hq_lng: form.hq_lng,
           rosterType,
-          roles
+          roles,
+          orgDepartments
         })
       })
       const data = await res.json()
@@ -347,6 +353,54 @@ export default function Register() {
             </Box>
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2.5 }}>
               Type a role name and press Enter to add. Click × to remove.
+            </Typography>
+
+            <Divider sx={{ my: 2 }}>
+              <Typography variant="caption" color="text.secondary" fontWeight={600}>TEAMS &amp; DEPARTMENTS</Typography>
+            </Divider>
+
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+              Define the teams or departments in your organisation. Staff members will be assigned to one when invited.
+            </Typography>
+
+            {/* Department chip input — press Enter or comma to commit a department */}
+            <Box
+              sx={{
+                border: '1px solid #e2e8f0', borderRadius: 2, p: 1.5, mb: 1,
+                minHeight: 80, display: 'flex', flexWrap: 'wrap', gap: 0.75, alignContent: 'flex-start',
+                '&:focus-within': { borderColor: ACCENT, boxShadow: '0 0 0 2px rgba(37,99,235,0.12)' }
+              }}
+            >
+              {orgDepartments.map(d => (
+                <Chip
+                  key={d} label={d} size="small"
+                  onDelete={() => setOrgDepartments(prev => prev.filter(x => x !== d))}
+                  deleteIcon={<CloseIcon sx={{ fontSize: '13px !important' }} />}
+                  sx={{ bgcolor: '#dbeafe', color: BLUE, fontWeight: 600, fontSize: 12, height: 26 }}
+                />
+              ))}
+              <Box
+                component="input"
+                value={deptInput}
+                onChange={e => setDeptInput(e.target.value)}
+                onKeyDown={e => {
+                  if ((e.key === 'Enter' || e.key === ',') && deptInput.trim()) {
+                    e.preventDefault()
+                    const d = deptInput.trim().replace(',', '')
+                    if (d && !orgDepartments.includes(d)) setOrgDepartments(prev => [...prev, d])
+                    setDeptInput('')
+                  }
+                }}
+                placeholder={orgDepartments.length === 0 ? 'e.g. Kitchen, Front Desk…' : ''}
+                sx={{
+                  border: 'none', outline: 'none', fontSize: 14, flex: 1,
+                  minWidth: 160, bgcolor: 'transparent', color: '#111827',
+                  '&::placeholder': { color: '#9ca3af' }
+                }}
+              />
+            </Box>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2.5 }}>
+              Type a team name and press Enter to add. Click × to remove.
             </Typography>
 
             {/* Terms of Service agreement checkbox — submit is disabled without it */}

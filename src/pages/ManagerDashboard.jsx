@@ -107,6 +107,16 @@ export default function ManagerDashboard() {
   const [roleInput, setRoleInput]           = useState('');
   // True while a role add/remove API call is in flight
   const [rolesSaving, setRolesSaving]       = useState(false);
+  // Org-wide team/department types shown in the Settings panel
+  const [orgDepartments, setOrgDepartments] = useState([]);
+  // Current value of the new-department text field in Settings
+  const [orgDeptInput, setOrgDeptInput]     = useState('');
+  // True while an org-department add/remove API call is in flight
+  const [orgDeptSaving, setOrgDeptSaving]   = useState(false);
+  // Departments this manager oversees (used to route swap approvals)
+  const [myDepartments, setMyDepartments]   = useState([]);
+  const [deptInput, setDeptInput]           = useState('');
+  const [deptSaving, setDeptSaving]         = useState(false);
   // Organisation site locations for GPS geo-fencing
   const [orgLocations, setOrgLocations]     = useState([]);
   // Form inputs for adding a new site location
@@ -235,6 +245,46 @@ export default function ManagerDashboard() {
       });
       if (res.ok) { const d = await res.json(); setOrgRoles(d.roles || []); }
     } catch { /* non-critical */ }
+  }
+
+  // Loads the org-wide team/department list for the Settings panel
+  async function fetchOrgDepartments() {
+    try {
+      const res = await apiFetch(`${BASE}/api/org-departments`, {
+        headers: { authorization: `Bearer ${managerToken}` }
+      });
+      if (res.ok) { const d = await res.json(); setOrgDepartments(d.departments || []); }
+    } catch { /* non-critical */ }
+  }
+
+  async function handleAddOrgDepartment() {
+    const dept = orgDeptInput.trim()
+    if (!dept) return
+    setOrgDeptSaving(true)
+    try {
+      const res = await apiFetch(`${BASE}/api/org-departments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', authorization: `Bearer ${managerToken}` },
+        body: JSON.stringify({ department: dept })
+      })
+      const data = await res.json()
+      if (res.ok) { setOrgDepartments(data.departments); setOrgDeptInput(''); setSnack({ open: true, msg: 'Department added.', severity: 'success' }); }
+      else setSnack({ open: true, msg: data.message || 'Failed to add department.', severity: 'error' })
+    } catch { setSnack({ open: true, msg: 'Network error.', severity: 'error' }) }
+    finally { setOrgDeptSaving(false) }
+  }
+
+  async function handleRemoveOrgDepartment(dept) {
+    try {
+      const res = await apiFetch(`${BASE}/api/org-departments/remove`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', authorization: `Bearer ${managerToken}` },
+        body: JSON.stringify({ department: dept })
+      })
+      const data = await res.json()
+      if (res.ok) { setOrgDepartments(data.departments); setSnack({ open: true, msg: 'Department removed.', severity: 'info' }); }
+      else setSnack({ open: true, msg: data.message || 'Failed to remove department.', severity: 'error' })
+    } catch { setSnack({ open: true, msg: 'Network error.', severity: 'error' }) }
   }
 
   function addNotification(notif) {
@@ -379,6 +429,38 @@ export default function ManagerDashboard() {
     } catch { setSnack({ open: true, msg: 'Network error.', severity: 'error' }) }
   }
 
+  async function handleAddDepartment() {
+    const dept = deptInput.trim()
+    if (!dept || myDepartments.includes(dept)) return
+    const updated = [...myDepartments, dept]
+    setDeptSaving(true)
+    try {
+      const res = await apiFetch(`${BASE}/api/manager-departments`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', authorization: `Bearer ${managerToken}` },
+        body: JSON.stringify({ departments: updated })
+      })
+      const data = await res.json()
+      if (res.ok) { setMyDepartments(data.departments); setDeptInput(''); setSnack({ open: true, msg: 'Department added.', severity: 'success' }); }
+      else setSnack({ open: true, msg: data.message || 'Failed to add department.', severity: 'error' })
+    } catch { setSnack({ open: true, msg: 'Network error.', severity: 'error' }) }
+    finally { setDeptSaving(false) }
+  }
+
+  async function handleRemoveDepartment(dept) {
+    const updated = myDepartments.filter(d => d !== dept)
+    try {
+      const res = await apiFetch(`${BASE}/api/manager-departments`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', authorization: `Bearer ${managerToken}` },
+        body: JSON.stringify({ departments: updated })
+      })
+      const data = await res.json()
+      if (res.ok) { setMyDepartments(data.departments); setSnack({ open: true, msg: 'Department removed.', severity: 'info' }); }
+      else setSnack({ open: true, msg: data.message || 'Failed to remove department.', severity: 'error' })
+    } catch { setSnack({ open: true, msg: 'Network error.', severity: 'error' }) }
+  }
+
   async function fetchOrgLocations() {
     try {
       const res = await apiFetch(`${BASE}/api/org-locations`, {
@@ -452,6 +534,7 @@ export default function ManagerDashboard() {
       if (res.ok) {
         const data = await res.json();
         setCurrentManager(data.user);
+        setMyDepartments(data.user?.departments || []);
         setLoading(false);
         // Kick off all dashboard data fetches after confirming the session is valid
         fetchPendingSwaps();
@@ -489,11 +572,11 @@ export default function ManagerDashboard() {
     const socket = getSocket()
     socket.connect()
 
-    // Re-emit join_room on every (re)connection so the socket stays in the managers room
-    // after network drops or server restarts — Socket.io rooms are in-memory and reset on disconnect
-    const handleConnect = () => socket.emit('join_room', { role: 'manager' })
+    // Re-emit join_room on every (re)connection — includes userId so the server can add this manager
+    // to a personal room (manager-<id>) for department-targeted swap notifications
+    const handleConnect = () => socket.emit('join_room', { role: 'manager', userId: currentManager._id })
     socket.on('connect', handleConnect)
-    if (socket.connected) socket.emit('join_room', { role: 'manager' })
+    if (socket.connected) socket.emit('join_room', { role: 'manager', userId: currentManager._id })
 
     // Staff member accepted a proposal — add it back to the list for final confirmation
     socket.on('shift_proposal_responded', (request) => {
@@ -593,6 +676,28 @@ export default function ManagerDashboard() {
       })
     })
 
+    socket.on('gps_warning', ({ staffName, isDriveByPunch, velocityMph, dateClockedIn, timeClockedIn }) => {
+      const flagType = isDriveByPunch
+        ? `Drive-by punch detected (${Math.round(velocityMph)} mph)`
+        : 'Spoofed GPS location detected'
+      addNotification({
+        type: 'gps_warning',
+        title: 'GPS Fraud Alert',
+        body: `${staffName} — ${flagType} at ${timeClockedIn} on ${dateClockedIn}`,
+        actionData: null,
+      })
+    })
+
+    socket.on('shift_open', ({ shift, candidates }) => {
+      const top = candidates?.[0]
+      addNotification({
+        type: 'shift_open',
+        title: 'Open Shift — Cover Candidates Ready',
+        body: `Shift on ${shift.date} (${shift.shift_start_time} – ${shift.shift_end_time}) — top match: ${top?.staffName || 'No candidates'}${top ? ` (${Math.round(top.score * 100)}% fit)` : ''}`,
+        actionData: null,
+      })
+    })
+
     return () => {
       socket.off('connect', handleConnect)
       socket.off('shift_proposal_responded')
@@ -602,6 +707,8 @@ export default function ManagerDashboard() {
       socket.off('leave_request_submitted')
       socket.off('leave_revoked')
       socket.off('staff_clocked_in')
+      socket.off('gps_warning')
+      socket.off('shift_open')
     }
   }, [currentManager?._id]);
 
@@ -867,7 +974,7 @@ export default function ManagerDashboard() {
     if (label === "Invite Staff") navigate("/invite-staff");
     // "Attendance" triggers an immediate download rather than navigating to a new page
     if (label === "Attendance") downloadAttendance();
-    if (label === "Settings") { fetchOrgRoles(); fetchOrgLocations(); }
+    if (label === "Settings") { fetchOrgRoles(); fetchOrgDepartments(); fetchOrgLocations(); }
     if (label === "Shift Swaps")     fetchPendingSwaps();
     if (label === "Cover Requests") { fetchPendingCoverShifts(); fetchActiveOpenShifts(); }
     if (label === "Leave Requests") { setLeaveTab(0); fetchPendingLeaveRequests(); }
@@ -1064,6 +1171,8 @@ export default function ManagerDashboard() {
                       swap_pending_approval:   { icon: <SwapHorizIcon sx={{ fontSize: 18 }} />,            color: '#7c3aed', bg: '#f5f3ff' },
                       leave_request_submitted: { icon: <BeachAccessIcon sx={{ fontSize: 18 }} />,          color: '#d97706', bg: '#fffbeb' },
                       staff_clocked_in:        { icon: <AccessTimeIcon sx={{ fontSize: 18 }} />,           color: '#16a34a', bg: '#f0fdf4' },
+                      gps_warning:             { icon: <WarningAmberIcon sx={{ fontSize: 18 }} />,         color: '#dc2626', bg: '#fef2f2' },
+                      shift_open:              { icon: <BoltIcon sx={{ fontSize: 18 }} />,                 color: '#7c3aed', bg: '#f5f3ff' },
                     }
                     const { icon, color, bg } = iconMap[notif.type] || { icon: <NotificationsIcon sx={{ fontSize: 18 }} />, color: '#6b7280', bg: '#f9fafb' }
 
@@ -1676,6 +1785,87 @@ export default function ManagerDashboard() {
                       Add Location
                     </Button>
                   </Box>
+                </Box>
+              </Paper>
+
+              {/* ── Teams & Departments — org-wide list of team types used when inviting staff ── */}
+              <Paper elevation={0} sx={{ border: "1px solid #e5e7eb", borderRadius: 3, p: 4, mt: 3 }}>
+                <Typography variant="h6" fontWeight={700} color={BLUE} sx={{ mb: 0.5 }}>Teams &amp; Departments</Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                  Define the teams in your organisation. Staff members are assigned to one of these when invited.
+                </Typography>
+
+                <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, mb: 3, minHeight: 40 }}>
+                  {orgDepartments.length === 0
+                    ? <Typography variant="body2" color="text.disabled">No teams defined yet.</Typography>
+                    : orgDepartments.map(dept => (
+                      <Chip
+                        key={dept} label={dept}
+                        onDelete={() => handleRemoveOrgDepartment(dept)}
+                        deleteIcon={<DeleteIcon sx={{ fontSize: "15px !important" }} />}
+                        sx={{ bgcolor: "#dbeafe", color: BLUE, fontWeight: 600, fontSize: 13 }}
+                      />
+                    ))
+                  }
+                </Box>
+
+                <Box sx={{ display: "flex", gap: 1.5 }}>
+                  <TextField
+                    size="small" placeholder="New team name… (e.g. Kitchen)" value={orgDeptInput}
+                    onChange={e => setOrgDeptInput(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddOrgDepartment(); } }}
+                    sx={{ flex: 1, '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+                  />
+                  <Button
+                    variant="contained"
+                    startIcon={orgDeptSaving ? <CircularProgress size={14} color="inherit" /> : <AddIcon />}
+                    onClick={handleAddOrgDepartment}
+                    disabled={orgDeptSaving || !orgDeptInput.trim()}
+                    sx={{ bgcolor: ACCENT, textTransform: "none", fontWeight: 600, borderRadius: 2, whiteSpace: "nowrap" }}
+                  >
+                    Add Team
+                  </Button>
+                </Box>
+              </Paper>
+
+              {/* ── My Departments — controls which swap approvals are routed to this manager ── */}
+              <Paper elevation={0} sx={{ border: "1px solid #e5e7eb", borderRadius: 3, p: 4, mt: 3 }}>
+                <Typography variant="h6" fontWeight={700} color={BLUE} sx={{ mb: 0.5 }}>My Departments</Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                  Swap requests from staff in these departments will be routed to you for approval.
+                  Leave this empty to receive all swap requests regardless of department.
+                </Typography>
+
+                <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, mb: 3, minHeight: 40 }}>
+                  {myDepartments.length === 0
+                    ? <Typography variant="body2" color="text.disabled">No departments assigned — you will see all swaps.</Typography>
+                    : myDepartments.map(dept => (
+                      <Chip
+                        key={dept} label={dept}
+                        onDelete={() => handleRemoveDepartment(dept)}
+                        deleteIcon={<DeleteIcon sx={{ fontSize: "15px !important" }} />}
+                        sx={{ bgcolor: "#dbeafe", color: BLUE, fontWeight: 600, fontSize: 13 }}
+                      />
+                    ))
+                  }
+                </Box>
+
+                <Box sx={{ display: "flex", gap: 1.5 }}>
+                  <TextField
+                    size="small" placeholder="Department name…" value={deptInput}
+                    onChange={e => setDeptInput(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddDepartment(); } }}
+                    sx={{ flex: 1, '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+                  />
+                  <Button
+                    variant="contained"
+                    startIcon={deptSaving ? <CircularProgress size={14} color="inherit" /> : <AddIcon />}
+                    onClick={handleAddDepartment}
+                    disabled={deptSaving || !deptInput.trim()}
+                    sx={{ bgcolor: ACCENT, textTransform: "none", fontWeight: 600, borderRadius: 2, whiteSpace: "nowrap" }}
+                  >
+                    Add Department
+                  </Button>
                 </Box>
               </Paper>
             </Box>

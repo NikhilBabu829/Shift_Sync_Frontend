@@ -95,6 +95,8 @@ export default function ManagerRoster() {
     const [roster, setRoster] = useState([])
     // True while the initial auth and staff data fetches are pending
     const [loading, setLoading] = useState(true)
+    // Active department filter; 'All' means no filter applied
+    const [activeDept, setActiveDept] = useState('All')
 
     // Weekly navigation — tracks the Monday of the currently displayed week
     const [weekMonday, setWeekMonday] = useState(() => getMondayOfWeek(new Date()))
@@ -115,9 +117,10 @@ export default function ManagerRoster() {
     function showSnack(msg, severity = 'success') { setSnack({ open: true, msg, severity }) }
 
     // Fetches all shifts within the given date range and updates the roster state
-    const fetchRoster = useCallback(async (from, to) => {
+    const fetchRoster = useCallback(async (from, to, dept) => {
         try {
-            const res = await apiFetch(`${BASE}/api/roster?from=${from}&to=${to}`, {
+            const deptParam = dept && dept !== 'All' ? `&department=${encodeURIComponent(dept)}` : ''
+            const res = await apiFetch(`${BASE}/api/roster?from=${from}&to=${to}${deptParam}`, {
                 headers: { authorization: `Bearer ${managerToken}` }
             })
             if (res.ok) {
@@ -149,21 +152,21 @@ export default function ManagerRoster() {
         })()
     }, [])
 
-    // Refetch the roster whenever the roster type or the displayed period changes
+    // Refetch the roster whenever the roster type, displayed period, or department filter changes
     useEffect(() => {
         if (!rosterType) return
         if (rosterType === 'weekly') {
             // Weekly view: fetch Mon → Sun of the current week
             const sunday = new Date(weekMonday)
             sunday.setDate(weekMonday.getDate() + 6)
-            fetchRoster(toISO(weekMonday), toISO(sunday))
+            fetchRoster(toISO(weekMonday), toISO(sunday), activeDept)
         } else {
             // Monthly view: fetch 1st → last day of the current month
             const first = new Date(monthYear.year, monthYear.month, 1)
             const last = new Date(monthYear.year, monthYear.month + 1, 0)
-            fetchRoster(toISO(first), toISO(last))
+            fetchRoster(toISO(first), toISO(last), activeDept)
         }
-    }, [rosterType, weekMonday, monthYear, fetchRoster])
+    }, [rosterType, weekMonday, monthYear, activeDept, fetchRoster])
 
     // Opens the Add Shift dialog, pre-filling the date from the clicked cell (or today if none)
     function openAddDialog(date) {
@@ -231,10 +234,13 @@ export default function ManagerRoster() {
         )
     }
 
+    // Unique sorted department list derived from the staff directory
+    const departments = [...new Set(staffList.map(s => s.department).filter(Boolean))].sort()
+
     return (
         <Box sx={{ minHeight: '100vh', bgcolor: '#f0f4f8', py: 4 }}>
             <Container maxWidth="xl">
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: 4 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
                     <IconButton onClick={() => navigate('/manager-dashboard')} sx={{ mr: 2 }}>
                         <ArrowBackIcon />
                     </IconButton>
@@ -249,6 +255,27 @@ export default function ManagerRoster() {
                     </Button>
                 </Box>
 
+                {/* Department filter chips — only rendered when the org has multiple departments */}
+                {departments.length > 0 && (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 3, flexWrap: 'wrap' }}>
+                        {['All', ...departments].map(dept => (
+                            <Chip
+                                key={dept}
+                                label={dept}
+                                onClick={() => setActiveDept(dept)}
+                                variant={activeDept === dept ? 'filled' : 'outlined'}
+                                sx={{
+                                    fontWeight: 600,
+                                    bgcolor: activeDept === dept ? ACCENT : 'transparent',
+                                    color: activeDept === dept ? '#fff' : BLUE,
+                                    borderColor: activeDept === dept ? ACCENT : '#d1d5db',
+                                    '&:hover': { bgcolor: activeDept === dept ? ACCENT : '#dbeafe' }
+                                }}
+                            />
+                        ))}
+                    </Box>
+                )}
+
                 {/* Render the appropriate calendar view based on the organisation's roster type */}
                 {rosterType === 'weekly'
                     ? <WeeklyView
@@ -257,6 +284,7 @@ export default function ManagerRoster() {
                         shiftsForDate={shiftsForDate}
                         onAdd={openAddDialog}
                         onDelete={handleDeleteShift}
+                        showDept={activeDept === 'All'}
                     />
                     : <MonthlyView
                         monthYear={monthYear}
@@ -264,6 +292,7 @@ export default function ManagerRoster() {
                         shiftsForDate={shiftsForDate}
                         onAdd={openAddDialog}
                         onDelete={handleDeleteShift}
+                        showDept={activeDept === 'All'}
                     />
                 }
             </Container>
@@ -278,14 +307,23 @@ export default function ManagerRoster() {
                         onChange={e => setNewShift(s => ({ ...s, date: e.target.value }))}
                         InputLabelProps={{ shrink: true }}
                     />
-                    {/* Staff member dropdown populated from the org staff directory */}
+                    {/* Staff member dropdown — filtered to active department when one is selected */}
                     <FormControl fullWidth size="small">
                         <InputLabel>Staff Member</InputLabel>
                         <Select value={newShift.staffId} label="Staff Member"
                             onChange={e => setNewShift(s => ({ ...s, staffId: e.target.value }))}>
-                            {staffList.map(st => (
-                                <MenuItem key={st._id} value={st._id}>{st.staffName}</MenuItem>
-                            ))}
+                            {(activeDept === 'All' ? staffList : staffList.filter(st => st.department === activeDept))
+                                .map(st => (
+                                    <MenuItem key={st._id} value={st._id}>
+                                        {st.staffName}
+                                        {activeDept === 'All' && st.department && (
+                                            <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                                                {st.department}
+                                            </Typography>
+                                        )}
+                                    </MenuItem>
+                                ))
+                            }
                         </Select>
                     </FormControl>
                     {/* Start and end time fields side-by-side */}
@@ -322,7 +360,7 @@ export default function ManagerRoster() {
 }
 
 // A single shift entry rendered inside a calendar cell — shows staff name, time, and a delete button
-function ShiftChip({ shift, onDelete }) {
+function ShiftChip({ shift, onDelete, showDept }) {
     return (
         <Box sx={{ display: 'flex', alignItems: 'center', bgcolor: '#dbeafe', borderRadius: 1, px: 1, py: 0.3, mb: 0.5, gap: 0.5 }}>
             <Box sx={{ flex: 1, minWidth: 0 }}>
@@ -332,6 +370,11 @@ function ShiftChip({ shift, onDelete }) {
                 <Typography variant="caption" color="text.secondary" sx={{ fontSize: 10 }}>
                     {shift.shift_start_time} – {shift.shift_end_time}
                 </Typography>
+                {showDept && shift.belongs_to?.department && (
+                    <Typography variant="caption" sx={{ fontSize: 9, color: ACCENT, display: 'block', fontWeight: 600 }}>
+                        {shift.belongs_to.department}
+                    </Typography>
+                )}
             </Box>
             {/* Delete button removes the shift from the roster */}
             <Tooltip title="Remove">
@@ -344,7 +387,7 @@ function ShiftChip({ shift, onDelete }) {
 }
 
 // 7-column weekly roster grid with prev/next week navigation and today highlighting
-function WeeklyView({ weekMonday, setWeekMonday, shiftsForDate, onAdd, onDelete }) {
+function WeeklyView({ weekMonday, setWeekMonday, shiftsForDate, onAdd, onDelete, showDept }) {
     // Array of 7 Date objects for the currently displayed week
     const weekDates = getWeekDates(weekMonday)
     const sunday = weekDates[6]
@@ -413,7 +456,7 @@ function WeeklyView({ weekMonday, setWeekMonday, shiftsForDate, onAdd, onDelete 
                             <Box sx={{ flex: 1, overflowY: 'auto' }}>
                                 {dayShifts.length === 0
                                     ? <Typography variant="caption" color="text.disabled" sx={{ fontSize: 10 }}>No shifts</Typography>
-                                    : dayShifts.map(s => <ShiftChip key={s._id} shift={s} onDelete={onDelete} />)
+                                    : dayShifts.map(s => <ShiftChip key={s._id} shift={s} onDelete={onDelete} showDept={showDept} />)
                                 }
                             </Box>
                         </Box>
@@ -425,7 +468,7 @@ function WeeklyView({ weekMonday, setWeekMonday, shiftsForDate, onAdd, onDelete 
 }
 
 // Month-grid roster view with prev/next month navigation, today highlighting, and a +2 overflow indicator
-function MonthlyView({ monthYear, setMonthYear, shiftsForDate, onAdd, onDelete }) {
+function MonthlyView({ monthYear, setMonthYear, shiftsForDate, onAdd, onDelete, showDept }) {
     const { year, month } = monthYear
     // Jagged array of weeks covering the full calendar month
     const weeks = getMonthCalendarDates(year, month)
@@ -510,7 +553,7 @@ function MonthlyView({ monthYear, setMonthYear, shiftsForDate, onAdd, onDelete }
                                     )}
                                 </Box>
                                 {/* Show at most 2 shift chips per cell to avoid overflow */}
-                                {dayShifts.slice(0, 2).map(s => <ShiftChip key={s._id} shift={s} onDelete={onDelete} />)}
+                                {dayShifts.slice(0, 2).map(s => <ShiftChip key={s._id} shift={s} onDelete={onDelete} showDept={showDept} />)}
                                 {/* "+N more" label when there are more than 2 shifts */}
                                 {dayShifts.length > 2 && (
                                     <Typography variant="caption" color="text.secondary" sx={{ fontSize: 10 }}>

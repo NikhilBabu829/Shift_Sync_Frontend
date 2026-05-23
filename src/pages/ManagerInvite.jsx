@@ -39,8 +39,10 @@ export default function ManagerInvite() {
     const [role, setRole] = useState('')
     // Roles pulled from the organisation's settings
     const [orgRoles, setOrgRoles] = useState([])
-    // Department assigned to all invitees in this batch
-    const [department, setDepartment] = useState('General')
+    // Department assigned to all invitees in this batch — required before sending
+    const [department, setDepartment] = useState('')
+    // Org-wide team/department types pulled from settings
+    const [orgDepartments, setOrgDepartments] = useState([])
     // Optional personal message appended to the invitation email
     const [message, setMessage] = useState('')
     // Invitations that have been sent but not yet accepted
@@ -71,14 +73,15 @@ export default function ManagerInvite() {
         fetchData()
     }, [managerToken])
 
-    // Loads manager auth, pending invitations, and org roles in parallel
+    // Loads manager auth, pending invitations, org roles, and org departments in parallel
     const fetchData = async () => {
         setLoading(true)
         try {
-            const [authRes, invitesRes, rolesRes] = await Promise.all([
+            const [authRes, invitesRes, rolesRes, deptsRes] = await Promise.all([
                 apiFetch('/api/manager-auth'),
                 apiFetch('/api/pending-invitations'),
-                apiFetch('/api/org-roles')
+                apiFetch('/api/org-roles'),
+                apiFetch('/api/org-departments')
             ])
             if (authRes.ok) {
                 const authData = await authRes.json()
@@ -97,6 +100,13 @@ export default function ManagerInvite() {
                 setOrgRoles(fetched)
                 // Pre-select the first available role so the dropdown is never empty
                 if (fetched.length > 0) setRole(fetched[0])
+            }
+            if (deptsRes.ok) {
+                const deptsData = await deptsRes.json()
+                const fetched = deptsData.departments || []
+                setOrgDepartments(fetched)
+                // Pre-select the first department so the dropdown is never empty
+                if (fetched.length > 0) setDepartment(fetched[0])
             }
         } catch (err) {
             console.error('Error fetching data:', err)
@@ -132,6 +142,7 @@ export default function ManagerInvite() {
         const allEmails = [...emails]
         if (currentEmail.trim()) allEmails.push(currentEmail.trim())
         if (allEmails.length === 0) return
+        if (!department) { showSnack('Please select a team/department for these staff members.', 'error'); return }
 
         setSending(true)
         try {
@@ -340,12 +351,19 @@ export default function ManagerInvite() {
                                             }
                                         </Select>
                                     </FormControl>
-                                    {/* Free-text department field */}
-                                    <FormControl size="small">
-                                        <FormLabel sx={{ fontWeight: 600, color: BLUE, fontSize: 13, mb: 0.75 }}>Department</FormLabel>
-                                        <TextField size="small" placeholder="e.g. Logistics"
-                                            value={department} onChange={e => setDepartment(e.target.value)}
-                                            sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
+                                    {/* Required team/department dropdown — populated from org settings */}
+                                    <FormControl size="small" required>
+                                        <FormLabel sx={{ fontWeight: 600, color: BLUE, fontSize: 13, mb: 0.75 }}>
+                                            Team / Department <Box component="span" sx={{ color: '#dc2626' }}>*</Box>
+                                        </FormLabel>
+                                        <Select value={department} onChange={e => setDepartment(e.target.value)}
+                                            sx={{ borderRadius: 2 }} displayEmpty
+                                            renderValue={v => v || 'Select team'}>
+                                            {orgDepartments.length === 0
+                                                ? <MenuItem disabled value=""><em>No teams defined — add them in Settings</em></MenuItem>
+                                                : orgDepartments.map(d => <MenuItem key={d} value={d}>{d}</MenuItem>)
+                                            }
+                                        </Select>
                                     </FormControl>
                                 </Box>
 
